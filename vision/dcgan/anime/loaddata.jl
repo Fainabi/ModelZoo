@@ -1,7 +1,7 @@
 using BSON
 using Images
 
-# about 1 gigabytes data to dave
+# about 1 gigabytes data to load
 
 function loaddata()
     path = joinpath(@__DIR__, "data")
