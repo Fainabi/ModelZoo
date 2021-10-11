@@ -19,26 +19,28 @@ end
 
 
 @with_kw struct Args
-    lr_desc::Float32 = 1e-3
-    lr_gen::Float32 = 1e-3
+    lr_desc::Float32 = 2e-4
+    lr_gen::Float32 = 2e-4
     device = gpu
-    batchsize::Int = 128
+    batchsize::Int = 16
+    epochs::Int = 5000
+    sampled_size = 6400
 end
 
 function Discriminator()
     Chain(
         Conv((5,5), 3=>32; stride=2, pad=1),
         BatchNorm(32, x->leakyrelu(x, 0.2f0)),
-        Dropout(0.25),
+        # Dropout(0.25),  # first step of training can omit dropout layer
         Conv((5,5), 32=>64; stride=2, pad=1),
         BatchNorm(64, x->leakyrelu(x, 0.2f0)),
-        Dropout(0.25),
+        # Dropout(0.25),
         Conv((4,4), 64=>128; stride=2, pad=1),
         BatchNorm(128, x->leakyrelu(x, 0.2f0)),
-        Dropout(0.25),
+        # Dropout(0.25),
         Conv((4,4), 128=>256; stride=2, pad=1),
         BatchNorm(256, x->leakyrelu(x, 0.2f0)),
-        Dropout(0.25),
+        # Dropout(0.25),
         x -> reshape(x, 3*3*256, :),
         Dense(3*3*256, 1)
     )
@@ -108,7 +110,7 @@ function train(;kws...)
     device = args.device
 
     BSON.@load data_path data
-    data = data[:, :, :, 1:12800]
+    data = data[:, :, :, 1:args.sampled_size]
     data = 2*data .- 1.0f0
     dataloader = Flux.DataLoader(data, batchsize=args.batchsize, shuffle=true)
     latent_dim = 100
@@ -120,7 +122,7 @@ function train(;kws...)
     fixed_noises = device(randn(Float32, latent_dim, 10))
 
     @info "Start training"
-    for epoch in 1:1
+    for epoch in 1:args.epochs
         loss_desc = 0
         loss_gan = 0
         for xs in tqdm(dataloader)
