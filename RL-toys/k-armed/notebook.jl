@@ -1,3 +1,294 @@
+### A Pluto.jl notebook ###
+# v0.16.1
+
+using Markdown
+using InteractiveUtils
+
+# ╔═╡ 03a89dc0-2fb1-4df7-a813-eeb14a3ac587
+using ReinforcementLearning
+
+# ╔═╡ 4eebf5dc-6f46-4be8-9db6-988d701cef7f
+using Flux
+
+# ╔═╡ c58592f6-27d3-4fb8-a0c0-f927512b89d1
+using Plots
+
+# ╔═╡ 111c8a06-58a3-4254-a6ea-40feeff4f7b4
+using PlutoUI
+
+# ╔═╡ 8bc0c020-3026-40ab-8365-2e21a81cb667
+begin
+	include("k-armed.jl")
+	include("k-armed_random_walk.jl")
+end
+
+# ╔═╡ 31e80874-a1b9-4ba3-aa28-dcb7f20d1fba
+md"""
+Create k-armed bandits and k-armed random walk bandits
+"""
+
+# ╔═╡ 5cdc4a8f-1e5e-4328-b1ee-704597083d0b
+env1 = KArmedBanditsEnv()
+
+# ╔═╡ bb017fe9-0a1d-48fd-9df6-2f445a081fa4
+env2 = KRandomWalkEnv()
+
+# ╔═╡ 46740f18-6e32-4342-aedd-3b9ba6cf7c7b
+md"""
+`env2` with initialized zero-vector, and at each step taking a random walk sampled from $N(0, 0.01)$.
+"""
+
+# ╔═╡ 05a4e060-a7ad-404c-9f61-96c30e488b28
+begin
+	reset!(env2)
+	values = hcat(
+		[
+			begin
+				i > 1 && action_space(env2) |> rand |> env2
+				copy(env2.true_values)
+			end
+			for i in 1:100
+		]...
+	)
+	plot(values', legend=false)
+end
+
+# ╔═╡ 37e9129b-8f10-4589-b5a0-e0e204db36f4
+md"""
+We can use tabular methods for tracking rewards, together with TD-learning.
+"""
+
+# ╔═╡ 80d72091-775f-4a1c-a5f5-0241ac2ec763
+approximator = TabularQApproximator(
+	n_state = length(state_space(env1)),
+	n_action = length(action_space(env1)),
+	opt = InvDecay(1.0)
+)
+
+# ╔═╡ 24a338a0-46dc-44da-8cb7-b5c6b71ec474
+learner = TDLearner(
+	approximator = approximator,
+	γ = 1.0,
+	method = :TD0
+)
+
+# ╔═╡ 4b332a62-30fe-44be-aa22-808d2ed1b260
+md"""
+Explorer we set to ϵ-greedy
+"""
+
+# ╔═╡ f63e4f8e-e1ae-4597-956b-efe54427c1fc
+explorer = EpsilonGreedyExplorer(0.01)
+
+# ╔═╡ 2049114c-a763-4a63-a915-5ecfef50cc8d
+policy = QBasedPolicy(
+	learner = learner,
+	explorer = explorer
+)
+
+# ╔═╡ 8b0b064d-a1f0-4d0f-b1f5-322a5fd81dcf
+agent = Agent(
+	policy = policy,
+	trajectory = VectorSARTTrajectory()
+)
+
+# ╔═╡ caf23063-609f-45d1-bd7f-803cff307503
+md"""
+We can run this agent, which wraps the policy and track the rewards, states and actions to update approximation, say `TabularQApproximation` here.
+```julia
+run(agent, env1, StopAfterStep(100), TotalRewardPerEpisode())
+```
+But now, let's take a look of how to use the `TabularQApproximation` to track and update the Q values.
+"""
+
+# ╔═╡ 936eee9c-c817-4e7f-a801-be14b42e83c5
+md"""
+## Optimistic Initial Value
+"""
+
+# ╔═╡ 257918d9-7dc0-44c3-9d01-b017a5c1cf26
+tabular = TabularQApproximator(n_state=1, n_action=10, opt=InvDecay(1.0))
+
+# ╔═╡ 76e3b633-b110-46d4-8e44-1512762cf1ef
+md"""
+The `InvDecay` optimizer can track the times of each value updated, thus we only need to care about how to handle theses rewards. Since our `env` ends in only one episode, we can just omit the episode strategy, and just query for reward we need anytime.
+"""
+
+# ╔═╡ ea212388-6190-4daa-841b-e3528604c591
+begin
+	# policy(env) = policy.learner(env) |> explorer
+	policy2 = QBasedPolicy(
+		learner = TDLearner(
+			approximator = tabular,
+			γ=1.0,
+			method=:SARSA,
+		),
+		explorer = EpsilonGreedyExplorer(0.)
+	)
+	policy2.learner(env1) == policy2.learner.approximator(state(env1))
+end
+
+# ╔═╡ 676acedc-572c-4b3d-975b-1c4bed2be37d
+md"""
+Though the :SARSA value are not familier here, we can still use the policy to get the ϵ-greedy exploration, and return the action we need to take. Here we set the ϵ to zero, which takes greedy action each step.
+"""
+
+# ╔═╡ 97ebac4d-505d-4f3b-9be2-56dc2019485d
+[policy2(env1) for _ in 1:20]
+
+# ╔═╡ 78205af8-7407-4c03-aade-dc4bb5bb6bb2
+let
+	reset!(env1)
+	empty!(tabular.optimizer.state)
+	tabular.table .= 0
+	rewards = []
+	for epoch in 1:100
+		action = policy2(env1)
+		env1(action)
+		reward = env1.reward
+		push!(rewards, reward)
+		s = state(env1)
+		update!(tabular, (s, action)=>tabular(s, action)-reward)
+	end
+	plot(tabular.table)
+	plot!(env1.true_values)
+end
+
+# ╔═╡ bea83ed5-e45e-4240-a9ed-7d5897255291
+md"""
+Once it get a value positive, without exploration, next each time the action returning positive value would always be choosen. But if we set the initial value to be relative great, then the acitons can all be explorered.
+"""
+
+# ╔═╡ b1ec772d-9ee4-44b5-aac7-7288037bfa9d
+let
+	reset!(env1)
+	empty!(tabular.optimizer.state)
+	tabular.table .= 5
+	rewards = []
+	for epoch in 1:1000
+		action = policy2(env1)
+		env1(action)
+		reward = env1.reward
+		push!(rewards, reward)
+		s = state(env1)
+		update!(tabular, (s, action)=>tabular(s, action)-reward)
+	end
+	plot(tabular.table)
+	plot!(env1.true_values)
+end
+
+# ╔═╡ 5d71254f-5ec4-4db8-b075-d6e4faec5df0
+md"""
+Though the approximator does not learn the true values of env, but it get a good shape like that. Such approach is something called _Optimisitc Initial Value_.
+"""
+
+# ╔═╡ c19e207d-7dc0-4e2d-b45b-28fc1cb5b938
+md"""
+If we set the explorer with ϵ probability to take new action, we shall get a more learnable policy.
+"""
+
+# ╔═╡ edccbe6c-1d4a-488b-8bda-9c9cc3d373ac
+let
+	policy2 = EpsilonGreedyExplorer(0.1)
+	reset!(env1)
+	empty!(tabular.optimizer.state)
+	tabular.table .= 0
+	rewards = []
+	for epoch in 1:1000
+		action = policy2(env1)
+		env1(action)
+		reward = env1.reward
+		push!(rewards, reward)
+		s = state(env1)
+		update!(tabular, (s, action)=>tabular(s, action)-reward)
+	end
+	plot(tabular.table)
+	plot!(env1.true_values)
+end
+
+# ╔═╡ b6cfd0f9-49d9-469e-b58e-e584b216f840
+md"""
+## Upper-Confidence-Bound Action Selection
+"""
+
+# ╔═╡ 6e2b33e7-e266-446f-992a-1775d28d2dcd
+md"""
+An UCB explorer would take more interests to the less taken actions, and take more probability to choose such action, thus explore the action space.
+"""
+
+# ╔═╡ dfb8d291-ec77-4ed4-bacf-ff191da01f53
+ucb = UCBExplorer(length(action_space(env1)))
+
+# ╔═╡ ac4285d5-5382-4ce6-b125-31af8bc3c5a7
+let
+	policy2 = QBasedPolicy(
+		learner = TDLearner(approximator=tabular, method=:SARSA),
+		explorer = ucb
+	)
+	reset!(env1)
+	empty!(tabular.optimizer.state)
+	tabular.table .= 0
+	rewards = []
+	for epoch in 1:1000
+		action = policy2(env1)
+		env1(action)
+		reward = env1.reward
+		push!(rewards, reward)
+		s = state(env1)
+		update!(tabular, (s, action)=>tabular(s, action)-reward)
+	end
+	plot(tabular.table)
+	plot!(env1.true_values)
+end
+
+# ╔═╡ 92122fd4-c5d5-43d9-9638-9bf8034d622b
+md"""
+## Gradient Bandits Learning
+
+The methods above are kind of TD learning, and gradient bandits is another kind of leaner which estimate 
+$\frac{\partial E[R_t]}{\partial H_t(a)}$
+to update the preference $H_t$.
+"""
+
+# ╔═╡ 3c5a0227-6210-4bc6-a210-6d5bbdadbe9b
+let
+	policy2 = QBasedPolicy(
+		learner = GradientBanditLearner(approximator=tabular, baseline=0.),
+		explorer = WeightedExplorer(is_normalized=true)  # softmax
+	)
+	reset!(env1)
+	empty!(tabular.optimizer.state)
+	tabular.table .= 0
+	rewards = []
+	for epoch in 1:1000
+		action = policy2(env1)
+		env1(action)
+		reward = env1.reward
+		push!(rewards, reward)
+		s = state(env1)
+		update!(tabular, (s, action)=>tabular(s, action)-reward)
+	end
+	plot(tabular.table)
+	plot!(env1.true_values)
+end
+
+# ╔═╡ 00000000-0000-0000-0000-000000000001
+PLUTO_PROJECT_TOML_CONTENTS = """
+[deps]
+Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
+Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
+PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+ReinforcementLearning = "158674fc-8238-5cab-b5ba-03dfc80d1318"
+
+[compat]
+Flux = "~0.12.7"
+Plots = "~1.22.4"
+PlutoUI = "~0.7.15"
+ReinforcementLearning = "~0.10.0"
+"""
+
+# ╔═╡ 00000000-0000-0000-0000-000000000002
+PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
 [[AbstractFFTs]]
@@ -30,10 +321,10 @@ version = "3.1.33"
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 
 [[BFloat16s]]
-deps = ["LinearAlgebra", "Test"]
-git-tree-sha1 = "4af69e205efc343068dc8722b8dfec1ade89254a"
+deps = ["LinearAlgebra", "Printf", "Random", "Test"]
+git-tree-sha1 = "a598ecb0d717092b5539dbbe890c98bac842b072"
 uuid = "ab4f0b2a-ad5b-11e8-123f-65d77653426b"
-version = "0.1.0"
+version = "0.2.0"
 
 [[Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
@@ -50,10 +341,10 @@ uuid = "fa961155-64e5-5f13-b03f-caf6b980ea82"
 version = "0.4.1"
 
 [[CUDA]]
-deps = ["AbstractFFTs", "Adapt", "BFloat16s", "CEnum", "CompilerSupportLibraries_jll", "DataStructures", "ExprTools", "GPUArrays", "GPUCompiler", "LLVM", "LazyArtifacts", "Libdl", "LinearAlgebra", "Logging", "Printf", "Random", "Random123", "RandomNumbers", "Reexport", "Requires", "SparseArrays", "SpecialFunctions", "TimerOutputs"]
-git-tree-sha1 = "5e696e37e51b01ae07bd9f700afe6cbd55250bce"
+deps = ["AbstractFFTs", "Adapt", "BFloat16s", "CEnum", "CompilerSupportLibraries_jll", "ExprTools", "GPUArrays", "GPUCompiler", "LLVM", "LazyArtifacts", "Libdl", "LinearAlgebra", "Logging", "Printf", "Random", "Random123", "RandomNumbers", "Reexport", "Requires", "SparseArrays", "SpecialFunctions", "TimerOutputs"]
+git-tree-sha1 = "2c8329f16addffd09e6ca84c556e2185a4933c64"
 uuid = "052768ef-5323-5732-b1bb-66c8b64840ba"
-version = "3.3.4"
+version = "3.5.0"
 
 [[Cairo_jll]]
 deps = ["Artifacts", "Bzip2_jll", "Fontconfig_jll", "FreeType2_jll", "Glib_jll", "JLLWrappers", "LZO_jll", "Libdl", "Pixman_jll", "Pkg", "Xorg_libXext_jll", "Xorg_libXrender_jll", "Zlib_jll", "libpng_jll"]
@@ -287,9 +578,9 @@ uuid = "559328eb-81f9-559d-9380-de523a88c83c"
 version = "1.0.10+0"
 
 [[Functors]]
-git-tree-sha1 = "e2727f02325451f6b24445cd83bfa9aaac19cbe7"
+git-tree-sha1 = "ee53f5bf9c098161629655b55e1462810f878f4f"
 uuid = "d9f16b24-f501-4c13-a1f2-28368ffc5196"
-version = "0.2.5"
+version = "0.2.6"
 
 [[Future]]
 deps = ["Random"]
@@ -302,16 +593,16 @@ uuid = "0656b61e-2033-5cc2-a64a-77c0f6c09b89"
 version = "3.3.5+0"
 
 [[GPUArrays]]
-deps = ["AbstractFFTs", "Adapt", "LinearAlgebra", "Printf", "Random", "Serialization", "Statistics"]
-git-tree-sha1 = "ececbf05f8904c92814bdbd0aafd5540b0bf2e9a"
+deps = ["Adapt", "LinearAlgebra", "Printf", "Random", "Serialization", "Statistics"]
+git-tree-sha1 = "7772508f17f1d482fe0df72cabc5b55bec06bbe0"
 uuid = "0c68f7d7-f131-5f86-a1c3-88cf8149b2d7"
-version = "7.0.1"
+version = "8.1.2"
 
 [[GPUCompiler]]
 deps = ["ExprTools", "InteractiveUtils", "LLVM", "Libdl", "Logging", "TimerOutputs", "UUIDs"]
-git-tree-sha1 = "4ed2616d5e656c8716736b64da86755467f26cf5"
+git-tree-sha1 = "2c7c032f2940f45ab44df765a7333026927afa00"
 uuid = "61eb1bfa-7361-4325-ad38-22787b887f55"
-version = "0.12.9"
+version = "0.13.5"
 
 [[GR]]
 deps = ["Base64", "DelimitedFiles", "GR_jll", "HTTP", "JSON", "Libdl", "LinearAlgebra", "Pkg", "Printf", "Random", "Serialization", "Sockets", "Test", "UUIDs"]
@@ -365,6 +656,23 @@ deps = ["Artifacts", "Cairo_jll", "Fontconfig_jll", "FreeType2_jll", "Glib_jll",
 git-tree-sha1 = "8a954fed8ac097d5be04921d595f741115c1b2ad"
 uuid = "2e76f6c2-a576-52d4-95c1-20adfe4de566"
 version = "2.8.1+0"
+
+[[Hyperscript]]
+deps = ["Test"]
+git-tree-sha1 = "8d511d5b81240fc8e6802386302675bdf47737b9"
+uuid = "47d2ed2b-36de-50cf-bf87-49c2cf4b8b91"
+version = "0.0.4"
+
+[[HypertextLiteral]]
+git-tree-sha1 = "f6532909bf3d40b308a0f360b6a0e626c0e263a8"
+uuid = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
+version = "0.9.1"
+
+[[IOCapture]]
+deps = ["Logging", "Random"]
+git-tree-sha1 = "f7be53659ab06ddc986428d3a9dcc95f6fa6705a"
+uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
+version = "0.2.2"
 
 [[IRTools]]
 deps = ["InteractiveUtils", "MacroTools", "Test"]
@@ -693,6 +1001,12 @@ git-tree-sha1 = "6841db754bd01a91d281370d9a0f8787e220ae08"
 uuid = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 version = "1.22.4"
 
+[[PlutoUI]]
+deps = ["Base64", "Dates", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "Markdown", "Random", "Reexport", "UUIDs"]
+git-tree-sha1 = "633f8a37c47982bff23461db0076a33787b17ecd"
+uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+version = "0.7.15"
+
 [[Preferences]]
 deps = ["TOML"]
 git-tree-sha1 = "00cfd92944ca9c760982747e9a1d0d5d86ab1e5a"
@@ -763,9 +1077,9 @@ version = "1.2.2"
 
 [[ReinforcementLearning]]
 deps = ["Reexport", "ReinforcementLearningBase", "ReinforcementLearningCore", "ReinforcementLearningEnvironments", "ReinforcementLearningZoo"]
-git-tree-sha1 = "670332c2342d2104b3147876d90d39c21012dde5"
+git-tree-sha1 = "a3e8f3712ed6497c335a5334e97a817b5c35b19e"
 uuid = "158674fc-8238-5cab-b5ba-03dfc80d1318"
-version = "0.9.0"
+version = "0.10.0"
 
 [[ReinforcementLearningBase]]
 deps = ["AbstractTrees", "CommonRLInterface", "Markdown", "Random", "Test"]
@@ -775,21 +1089,21 @@ version = "0.9.7"
 
 [[ReinforcementLearningCore]]
 deps = ["AbstractTrees", "Adapt", "ArrayInterface", "CUDA", "CircularArrayBuffers", "Compat", "Dates", "Distributions", "ElasticArrays", "FillArrays", "Flux", "Functors", "GPUArrays", "LinearAlgebra", "MacroTools", "Markdown", "ProgressMeter", "Random", "ReinforcementLearningBase", "Setfield", "Statistics", "StatsBase", "UnicodePlots", "Zygote"]
-git-tree-sha1 = "9db88e038268dbf1c7f5c2bf2b91b332a0682ebe"
+git-tree-sha1 = "3f3f1fb041e4b92b74b57b58368bf4eebb199f1d"
 uuid = "de1b191a-4ae0-4afa-a27b-92d07f46b2d6"
-version = "0.8.3"
+version = "0.8.4"
 
 [[ReinforcementLearningEnvironments]]
-deps = ["DelimitedFiles", "IntervalSets", "LinearAlgebra", "MacroTools", "Markdown", "Pkg", "Random", "ReinforcementLearningBase", "Requires", "StatsBase"]
-git-tree-sha1 = "38d53be26a5a56d10fe8b952cdd048d3480cf111"
+deps = ["DelimitedFiles", "IntervalSets", "LinearAlgebra", "MacroTools", "Markdown", "Pkg", "Random", "ReinforcementLearningBase", "Requires", "SparseArrays", "StatsBase"]
+git-tree-sha1 = "205c3878d0a9ddedd5895330d19e1d6a4f7b2d95"
 uuid = "25e41dd2-4622-11e9-1641-f1adca772921"
-version = "0.6.3"
+version = "0.6.4"
 
 [[ReinforcementLearningZoo]]
 deps = ["AbstractTrees", "CUDA", "CircularArrayBuffers", "DataStructures", "Dates", "Distributions", "Flux", "IntervalSets", "LinearAlgebra", "Logging", "MacroTools", "Random", "ReinforcementLearningBase", "ReinforcementLearningCore", "Setfield", "Statistics", "StatsBase", "StructArrays", "Zygote"]
-git-tree-sha1 = "35e933c102db55741f9efcb5c1f3db2cf576a74e"
+git-tree-sha1 = "dbdf85c31ad076cd4a35c8880abd1086f1012dbf"
 uuid = "d607f57d-ee1e-4ba7-bcf2-7734c1e31854"
-version = "0.4.1"
+version = "0.5.1"
 
 [[Requires]]
 deps = ["UUIDs"]
@@ -823,9 +1137,9 @@ uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 
 [[Setfield]]
 deps = ["ConstructionBase", "Future", "MacroTools", "Requires"]
-git-tree-sha1 = "fca29e68c5062722b5b4435594c3d1ba557072a3"
+git-tree-sha1 = "def0718ddbabeb5476e51e5a43609bee889f285d"
 uuid = "efcf1570-3423-57d1-acb7-fd33fddbac46"
-version = "0.7.1"
+version = "0.8.0"
 
 [[SharedArrays]]
 deps = ["Distributed", "Mmap", "Random", "Serialization"]
@@ -878,10 +1192,10 @@ uuid = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
 version = "1.0.0"
 
 [[StatsBase]]
-deps = ["DataAPI", "DataStructures", "LinearAlgebra", "Missings", "Printf", "Random", "SortingAlgorithms", "SparseArrays", "Statistics", "StatsAPI"]
-git-tree-sha1 = "8cbbc098554648c84f79a463c9ff0fd277144b6c"
+deps = ["DataAPI", "DataStructures", "LinearAlgebra", "LogExpFunctions", "Missings", "Printf", "Random", "SortingAlgorithms", "SparseArrays", "Statistics", "StatsAPI"]
+git-tree-sha1 = "65fb73045d0e9aaa39ea9a29a5e7506d9ef6511f"
 uuid = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
-version = "0.33.10"
+version = "0.33.11"
 
 [[StatsFuns]]
 deps = ["ChainRulesCore", "IrrationalConstants", "LogExpFunctions", "Reexport", "Rmath", "SpecialFunctions"]
@@ -949,9 +1263,9 @@ uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 
 [[UnicodePlots]]
 deps = ["Crayons", "Dates", "SparseArrays", "StatsBase"]
-git-tree-sha1 = "dc9c7086d41783f14d215ea0ddcca8037a8691e9"
+git-tree-sha1 = "f1d09f14722f5f3cef029bcb031be91a92613ae9"
 uuid = "b8865327-cd53-5732-bb35-84acbb429228"
-version = "1.4.0"
+version = "2.4.6"
 
 [[Wayland_jll]]
 deps = ["Artifacts", "Expat_jll", "JLLWrappers", "Libdl", "Libffi_jll", "Pkg", "XML2_jll"]
@@ -1121,9 +1435,9 @@ version = "1.5.0+0"
 
 [[Zygote]]
 deps = ["AbstractFFTs", "ChainRules", "ChainRulesCore", "DiffRules", "Distributed", "FillArrays", "ForwardDiff", "IRTools", "InteractiveUtils", "LinearAlgebra", "MacroTools", "NaNMath", "Random", "Requires", "SpecialFunctions", "Statistics", "ZygoteRules"]
-git-tree-sha1 = "4a17c6dee9ac66219b34478b8e430f17c32fc3df"
+git-tree-sha1 = "78bdfa26eb61600038461229bcd7a5b6f6bb32e4"
 uuid = "e88e6eb3-aa80-5325-afca-941959d7151f"
-version = "0.6.25"
+version = "0.6.26"
 
 [[ZygoteRules]]
 deps = ["MacroTools"]
@@ -1180,3 +1494,44 @@ deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg", "Wayland_jll", "Wayland_prot
 git-tree-sha1 = "ece2350174195bb31de1a63bea3a41ae1aa593b6"
 uuid = "d8fb68d0-12a3-5cfd-a85a-d49703b185fd"
 version = "0.9.1+5"
+"""
+
+# ╔═╡ Cell order:
+# ╠═03a89dc0-2fb1-4df7-a813-eeb14a3ac587
+# ╠═4eebf5dc-6f46-4be8-9db6-988d701cef7f
+# ╠═c58592f6-27d3-4fb8-a0c0-f927512b89d1
+# ╠═111c8a06-58a3-4254-a6ea-40feeff4f7b4
+# ╠═8bc0c020-3026-40ab-8365-2e21a81cb667
+# ╟─31e80874-a1b9-4ba3-aa28-dcb7f20d1fba
+# ╠═5cdc4a8f-1e5e-4328-b1ee-704597083d0b
+# ╠═bb017fe9-0a1d-48fd-9df6-2f445a081fa4
+# ╟─46740f18-6e32-4342-aedd-3b9ba6cf7c7b
+# ╠═05a4e060-a7ad-404c-9f61-96c30e488b28
+# ╟─37e9129b-8f10-4589-b5a0-e0e204db36f4
+# ╠═80d72091-775f-4a1c-a5f5-0241ac2ec763
+# ╠═24a338a0-46dc-44da-8cb7-b5c6b71ec474
+# ╟─4b332a62-30fe-44be-aa22-808d2ed1b260
+# ╠═f63e4f8e-e1ae-4597-956b-efe54427c1fc
+# ╠═2049114c-a763-4a63-a915-5ecfef50cc8d
+# ╠═8b0b064d-a1f0-4d0f-b1f5-322a5fd81dcf
+# ╟─caf23063-609f-45d1-bd7f-803cff307503
+# ╟─936eee9c-c817-4e7f-a801-be14b42e83c5
+# ╠═257918d9-7dc0-44c3-9d01-b017a5c1cf26
+# ╟─76e3b633-b110-46d4-8e44-1512762cf1ef
+# ╠═ea212388-6190-4daa-841b-e3528604c591
+# ╟─676acedc-572c-4b3d-975b-1c4bed2be37d
+# ╠═97ebac4d-505d-4f3b-9be2-56dc2019485d
+# ╠═78205af8-7407-4c03-aade-dc4bb5bb6bb2
+# ╟─bea83ed5-e45e-4240-a9ed-7d5897255291
+# ╠═b1ec772d-9ee4-44b5-aac7-7288037bfa9d
+# ╟─5d71254f-5ec4-4db8-b075-d6e4faec5df0
+# ╟─c19e207d-7dc0-4e2d-b45b-28fc1cb5b938
+# ╠═edccbe6c-1d4a-488b-8bda-9c9cc3d373ac
+# ╟─b6cfd0f9-49d9-469e-b58e-e584b216f840
+# ╟─6e2b33e7-e266-446f-992a-1775d28d2dcd
+# ╠═dfb8d291-ec77-4ed4-bacf-ff191da01f53
+# ╠═ac4285d5-5382-4ce6-b125-31af8bc3c5a7
+# ╟─92122fd4-c5d5-43d9-9638-9bf8034d622b
+# ╠═3c5a0227-6210-4bc6-a210-6d5bbdadbe9b
+# ╟─00000000-0000-0000-0000-000000000001
+# ╟─00000000-0000-0000-0000-000000000002
