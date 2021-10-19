@@ -9,3 +9,4 @@ This is a repository for learning Flux.jl and some ML/DL technologies, as well a
 
 - RL
   - K-Armed Bandits
+  - [Sokoban](https://en.wikipedia.org/wiki/Sokoban)
