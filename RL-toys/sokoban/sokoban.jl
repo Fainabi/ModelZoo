@@ -71,7 +71,7 @@ function Sokoban(sokoban_map)
     reachable_dict = Dict()
 
     for index in CartesianIndices((1:size(sokoban_map, 1), 1:size(sokoban_map, 2)))
-        unit = sokoban_map[index]
+        unit = sokoban_map[index] |> uppercase
         if unit == wall_unit
             continue
         end
@@ -104,6 +104,17 @@ function Sokoban(sokoban_map)
     Sokoban(background, box_init_pos, goal_pos, player_pos[1], reachable_units, reachable_dict)
 end
 
+Base.copy(xy::CartesianIndex) = CartesianIndex((xy.I...))
+Base.copy(skb::Sokoban) = Sokoban(
+    skb.Map, 
+    copy(skb.box_pos), 
+    skb.goal_pos, 
+    copy(skb.player_pos), 
+    skb.reachable_units, 
+    skb.reachable_dict)
+
+is_terminated(skb::Sokoban) = all(x -> x in skb.goal_pos, skb.box_pos)
+Base.show(io::IO, skb::Sokoban) = draw_symbols(skb)
 
 function from_file(filename)
     lines = readlines(filename)
@@ -207,11 +218,11 @@ function step!(skb::Sokoban, action)
     if action == 1
         up!(skb)
     elseif action == 2
-        down!(skb)
-    elseif action == 3
-        left!(skb)
-    elseif action == 4
         right!(skb)
+    elseif action == 3
+        down!(skb)
+    elseif action == 4
+        left!(skb)
     end
 end
 

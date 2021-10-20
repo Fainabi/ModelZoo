@@ -1,7 +1,0 @@
-XXXXXXXXX
-X       X
-X*   P* X
-XO      X
-X    O  X
-X       X
-XXXXXXXXX

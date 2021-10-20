@@ -3,7 +3,11 @@ function binomial_order(n, k)
     posistions = []
 
     pos = collect(1:k)
-    for i in 1:binomial(n, k)
+    space_size = binomial(n, k)
+    if space_size > 100000
+        error("This state space is too big for DP ($space_size), choose another game. ")
+    end
+    for i in 1:space_size
         pos_state[copy(pos)] = i
         push!(posistions, copy(pos))
         next_pos!(n, pos)
