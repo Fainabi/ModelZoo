@@ -32,14 +32,16 @@ mutable struct SokobanEnvModel <: AbstractEnvironmentModel
     reachable_dict
 
     goal_pos
+    end_reward
+    step_reward
 end
 
-function SokobanEnvModel(skb::Sokoban)
+function SokobanEnvModel(skb::Sokoban; end_reward=10., step_reward=0.)
     reachable = skb.reachable_units
     boxes = skb.box_pos
     state_position, position_state = binomial_order(length(reachable)-1, length(boxes))
 
-    SokobanEnvModel(state_position, position_state, skb.reachable_units, skb.reachable_dict, skb.goal_pos)
+    SokobanEnvModel(state_position, position_state, skb.reachable_units, skb.reachable_dict, skb.goal_pos, end_reward, step_reward)
 end
 
 is_terminated(skb_env::SokobanEnvModel, box_poses) = all(box -> box in skb_env.goal_pos, box_poses)
@@ -101,20 +103,9 @@ function (m::SokobanEnvModel)(s::Int, a::Int)
         player_pos = next_pos
     end
 
-    r = is_terminated(m, box_poses) ? 10. : 0.  # end game with reward of 1
+    r = is_terminated(m, box_poses) ? m.end_reward : m.step_reward  # end game with reward of 1
 
-    # In the book of `Reinforcement Learning: An introduction`()
-    # the reward was in the sequnce like:
-    #       s_{t-1}, a_{t-1}; r_t, s_t, a_t; ...
-    # and some examples assign 0 to the termination state, -1 to others.
-    # In sokoban, there exists many states that are deat states, in which 
-    # we can never reach the true solution in such state. So rather than give penality
-    # to the agent, here we set to give positive reward when it reaches true end. And 
-    # thus the sequnce is with in-time rewards
-    #       s_{t-1}, a_{t-1}, r_{t-1}; s_t, a_t, r_t; ...
-    # another reason to take such approach is the implementation of policy iteration
-    # in ReinforcementLearning.jl, where the V(t+1) is factored with zero when meeting
-    # termination condition.
+    # strategy to choose r and iteration, see readme
     [(r, is_terminated(m, box_poses), encode_state(m, player_pos, box_poses)) => 1.0]  # deteministic process
 end
 
@@ -188,13 +179,16 @@ function replay(agent::SokobanAgent; time_gap=0.5, max_step=100)
     end
 end
 
-policy_eval(agent::SokobanAgent) = policy_evaluation!(V=agent.V, π=agent.π, model=agent.env_model, γ=1.0, θ=Inf64)
-value_iteration(agent::SokobanAgent) = value_iteration!(V=agent.V, model=agent.env_model, γ=1.0, max_iter=100)
-
 
 sweep(agent::SokobanAgent, n) = @showprogress 0.5 "Evaluating..." for _ in 1:n 
     policy_evaluation!(V=agent.V, π=agent.π, model=agent.env_model, γ=1.0, θ=Inf64)
 end
+
+# one can see how the value changes if we perform value iteration
+value_iteration(agent::SokobanAgent; max_iter=10) = @showprogress 0.5 "Value Iterating..." for _ in 1:max_iter
+    RLZoo.value_iteration!(V=agent.V, model=agent.env_model, γ=1.0, max_iter=1)
+end
+
 
 function interact!(agent::SokobanAgent) 
     agent.now_game = copy(agent.origin_game)

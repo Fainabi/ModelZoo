@@ -20,7 +20,7 @@ We define some characters for representing units in sokoban game:
 - ⦿: Box on Goal(`\circledbullet<tab>`)
 - @: Player on Goal
 
-One can define its game such as `game/game1.txt`:
+One can define its game such as `games/game4`:
 
 ```
 XXXXXXXXX
@@ -57,12 +57,38 @@ julia> include("agent.jl")
 julia> game = new_game("games/game0")
 ```
 
-To evalutate policy, run:
+To evaluate policy, run:
 ```julia
 julia> sweep(game, 10)  # sweep 10 times for iteratively updating Vs
 ```
 
-After policy evaluating, just let the agent play to show the preformance:
+After policy evaluating, just let the agent play to show the performance:
 ```julia
 julia> replay(game)
 ```
+
+We choose random policy here, and does not improve the policy, so sweep there
+take $\gamma = 1$, and as a result, we would not take value iteration.
+
+In the book of `Reinforcement Learning: An introduction`
+the reward was in the sequence like:
+$$
+s_{t-1}, a_{t-1}; r_t, s_t, a_t; \cdots 
+$$
+
+and some examples assign 0 to the termination state, -1 to others.
+In sokoban, there exists many states that are dead states, in which 
+we can never reach the true solution in such state. So rather than give penalty
+to the agent, here we set to give positive reward when it reaches true end. And 
+thus the sequence is with in-time rewards
+$$
+s_{t-1}, a_{t-1}, r_{t-1}; s_t, a_t, r_t; \cdots 
+$$
+
+another reason to take such approach is the implementation of policy iteration
+in ReinforcementLearning.jl, where the V(t+1) is factored with zero when meeting
+termination condition.
+
+
+For a game with relative big state space, e.g. game5, it needs time to travel all states in every single sweep.
+It took a decade more sweeps to finish its playing.
