@@ -4,10 +4,9 @@ using Metalhead
 using Parameters
 using Images
 using Random: randn
-using ProgressBars: tqdm
 
 @with_kw struct Args
-    β::Float32 = 1.
+    β::Float32 = 1000000
     epochs::Int = 5
     lr::Float32 = 2e-2
     device = cpu
@@ -25,9 +24,9 @@ function content_loss(content_img, input_img)
 end
 
 function gram(A)  # A is a tensor with several channels
-    _, _, channels = size(A)
+    w, h, channels = size(A)
     A = reshape(A, :, channels)  # channel * channel
-    A' * A
+    A' * A / (w*h)^2
 end
 
 function style_loss(style_img, input_img)
@@ -35,9 +34,14 @@ function style_loss(style_img, input_img)
 end
 
 function extract_feature(model, img)
-    img = reshape(img, size(img)..., 1)
-    feature = model(img)
-    dropdims(feature, dims=4)
+    features = []
+    now_feature = img
+    for layer in model.layers
+        now_feature = layer(now_feature)
+        push!(features, dropdims(now_feature, dims=4))
+    end
+    
+    features
 end
 
 function img_clip(img)
@@ -52,29 +56,54 @@ function img_clip(img)
     end
 end
 
-function train(pic1, pic2)
-    args = Args()
+function img_preprocess(img)
+    μ = [0.485, 0.456, 0.406]
+    σ = [0.229, 0.224, 0.225]
+    img = (channelview(img) .- μ)./σ
+
+    return Float32.(permutedims(img, (3, 2, 1))[:,:,:,:].*255)
+end
+
+function img_postprocess(img)
+    μ = [0.485, 0.456, 0.406]
+    σ = [0.229, 0.224, 0.225]
+    img = permutedims(img[:,:,:, 1] ./ 255, (3,2,1))
+    img = (img .* σ) .+ μ
+
+    return Float32.(img) |> img_clip |> colorview(RGB)
+end
+
+function train(pic1, pic2; kws...)
+    args = Args(; kws...)
     device = args.device
     vgg = construct_model() |> device
-    content = float32.(load(pic1)) |> channelview |> x->permutedims(x, [3,2,1]) |> device
-    style = float32.(load(pic2)) |> channelview |> x->permutedims(x, [3,2,1]) |> device
+    content = img_preprocess(load(pic1))
+    style = img_preprocess(load(pic2))
 
     new_pic = copy(content)
-    content = extract_feature(vgg, content)
+    content = extract_feature(vgg, content)[end]
     style = extract_feature(vgg, style)
     
     opt = ADAM(args.lr)
     @info "Start Training..."
-    for epoch in tqdm(1:args.epochs)
+    for epoch in 1:args.epochs
         ps = params(new_pic)
+
         gs = gradient(ps) do 
-            feature = extract_feature(vgg, new_pic)
-            content_loss(content, feature) + args.β*style_loss(style, feature)
+            loss = 0
+            feature = new_pic
+            for (idx, layer) in enumerate(vgg.layers)
+                feature = layer(feature)
+                loss += args.β*style_loss(style[idx], feature)
+            end
+            loss + content_loss(content, feature)
         end
         Flux.update!(opt, ps, gs)
-        new_pic = img_clip(new_pic)
+
+        features = extract_feature(vgg, new_pic)
+        @info "Epoch: $epoch" content_loss(content, features[end]) style_loss(style[end], features[end])
     end
 
-    new_img = permutedims(new_pic, [3,2,1]) |> colorview(RGB)
+    new_img = img_postprocess(new_pic)
     save("target.jpg", new_img)
 end
