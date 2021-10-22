@@ -6,6 +6,7 @@ This is a repository for learning Flux.jl and some ML/DL technologies, as well a
 
 - Vision
   - Deep Convolutional Generative Adversarial Networks
+  - Style Transfer
 
 - RL
   - K-Armed Bandits
