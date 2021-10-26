@@ -1,5 +1,8 @@
 using PyCall
 using Flux
+using Random: randn
+
+include("utils.jl")
 
 function __init__()
     pushfirst!(PyVector(pyimport("sys")."path"), "")
@@ -38,6 +41,8 @@ mutable struct SynthesisNetwork
     style2
     conv1_up
     conv2
+
+    upsample
 end
 
 
@@ -47,12 +52,55 @@ mutable struct StyleBasedGen
     synthesis
 end
 
+"""
+    generate_sample(w, noise)
+
+#params
+...
+w: style sample W space
+noise: sample in gaussian noises
+...
+"""
+function generate_sample(gen::StyleBasedGen, w, noise=nothing)
+    x = gen.synthesis[1].const_head
+    for (idx, layer) in enumerate(gen.synthesis)
+        if idx > 1
+            x = x |> layer.upsample |> layer.conv1_up
+        end
+        noise1 = isnothing(noise) ? randn() : noise[idx][1]
+        noise2 = isnothing(noise) ? randn() : noise[idx][2]
+        x += layer.noise1 * noise1
+        x = AdaIn(layer.style1(w), x)
+        x = layer.conv2(x) + layer.noise2 * noise2
+        x = AdaIn(layer.style2(w), x)
+    end
+end
+
+
+
 function Base.show(io::IO, gen::StyleBasedGen)
-    print("8 FC Mapping + \nSynthesis(512")
+    print("8 FC Mapping + \nSynthesis(")
     for syn in gen.synthesis
-        print(" => ", size(syn.conv2.weight, 4))
+        if syn.conv1_up !== nothing
+            print("(", size(syn.conv1_up.weight, 3), ",", size(syn.conv1_up.weight, 4), "), ")
+        end
+        println("(", size(syn.conv2.weight, 3), ",", size(syn.conv2.weight, 4), "), ")
     end
     println(")")
+end
+
+function load_conv(tf_conv_w, tf_conv_b)
+    cn = Conv((3,3), size(tf_conv_w, 3)=>size(tf_conv_w, 4); pad=1)
+    Flux.loadparams!(cn, params(tf_conv_w, tf_conv_b))
+
+    cn
+end
+
+function load_fc(tf_w, tf_b, activation=identity)
+    fc = Dense(size(tf_w)..., activation)
+    Flux.loadparams!(fc, params(tf_w', tf_b))
+
+    fc
 end
 
 function StyleBasedGen(pyobj)
@@ -62,12 +110,11 @@ function StyleBasedGen(pyobj)
 
     # construct style gan
     mapping = Chain(map(0:7) do i
-        weight = tf_mapping[string("Dense", i, "/weight")].eval()
-        bias = tf_mapping[string("Dense", i, "/bias")].eval()
-        layer = Dense(reverse(size(weight))...)
-        Flux.loadparams!(layer, params(weight, bias))
-
-        layer
+        load_fc(
+            tf_mapping[string("Dense", i, "/weight")].eval(),
+            tf_mapping[string("Dense", i, "/bias")].eval(),
+            x -> leakyrelu(x, 0.2)
+        )
     end...)
 
     synthesis = map(0:6) do i
@@ -77,20 +124,19 @@ function StyleBasedGen(pyobj)
             const_head  = tf_synthesis[string(scale, "Const/const")].eval()
             # ? Const/bias
             noise1 = tf_synthesis[string(scale, "Const/Noise/weight")].eval()
-            style1_w = tf_synthesis[string(scale, "Const/StyleMod/weight")].eval()
-            style1_b = tf_synthesis[string(scale, "Const/StyleMod/bias")].eval()
-            style1 = Dense(size(style1_w)...)  # (512, 1024)
-            Flux.loadparams!(style1, params(style1_w', style1_b))
+            style1 = load_fc(
+                tf_synthesis[string(scale, "Const/StyleMod/weight")].eval(),
+                tf_synthesis[string(scale, "Const/StyleMod/bias")].eval()
+            )
 
-            conv2_w = tf_synthesis[string(scale, "Conv/weight")].eval()
-            conv2_b = tf_synthesis[string(scale, "Conv/bias")].eval()
-            conv2 = Conv((3,3), size(conv2_w, 3)=>size(conv2_w, 4))
-            Flux.loadparams!(conv2, params(conv2_w, conv2_b))
+            conv2 = load_conv(
+                tf_synthesis[string(scale, "Conv/weight")].eval(), 
+                tf_synthesis[string(scale, "Conv/bias")].eval())
             noise2 = tf_synthesis[string(scale, "Conv/Noise/weight")].eval()
-            style2_w = tf_synthesis[string(scale, "Conv/StyleMod/weight")].eval()
-            style2_b = tf_synthesis[string(scale, "Conv/StyleMod/bias")].eval()
-            style2 = Dense(size(style2_w)...)
-            Flux.loadparams!(style2, params(style2_w', style2_b))
+            style2 = load_fc(
+                tf_synthesis[string(scale, "Conv/StyleMod/weight")].eval(),
+                tf_synthesis[string(scale, "Conv/StyleMod/bias")].eval()
+            )
 
             SynthesisNetwork(
                 const_head, 
@@ -99,32 +145,30 @@ function StyleBasedGen(pyobj)
                 style1, 
                 style2, 
                 nothing,
-                conv2)
+                conv2, 
+                nothing
+            )
         else
-            #? upsample 
-            conv1_up_w = tf_synthesis[string(scale, "Conv0_up/weight")].eval()
-            conv1_up_b = tf_synthesis[string(scale, "Conv0_up/bias")].eval()
-            
-            conv1_up = Conv((3,3), size(conv1_up_w, 3)=>size(conv1_up_w, 4))
-            Flux.loadparams!(conv1_up, params(conv1_up_w, conv1_up_b))
-
+            conv1_up = load_conv(
+                tf_synthesis[string(scale, "Conv0_up/weight")].eval(),
+                tf_synthesis[string(scale, "Conv0_up/bias")].eval()
+            )
             noise1 = tf_synthesis[string(scale, "Conv0_up/Noise/weight")].eval()
-            style1_w = tf_synthesis[string(scale, "Conv0_up/StyleMod/weight")].eval()
-            style1_b = tf_synthesis[string(scale, "Conv0_up/StyleMod/bias")].eval()
-            style1 = Dense(size(style1_w)...)
-            Flux.loadparams!(style1, params(style1_w', style1_b))
+            style1 = load_fc(
+                tf_synthesis[string(scale, "Conv0_up/StyleMod/weight")].eval(),
+                tf_synthesis[string(scale, "Conv0_up/StyleMod/bias")].eval()
+            )
 
 
-            conv2_w = tf_synthesis[string(scale, "Conv1/weight")].eval()
-            conv2_b = tf_synthesis[string(scale, "Conv1/bias")].eval()
-            conv2 = Conv((3,3), size(conv2_w, 3)=>size(conv2_w, 4))
-            Flux.loadparams!(conv2, params(conv2_w, conv2_b))
+            conv2 = load_conv(
+                tf_synthesis[string(scale, "Conv1/weight")].eval(),
+                tf_synthesis[string(scale, "Conv1/bias")].eval()
+            )
             noise2 = tf_synthesis[string(scale, "Conv1/Noise/weight")].eval()
-            style2_w = tf_synthesis[string(scale, "Conv1/StyleMod/weight")].eval()
-            style2_b = tf_synthesis[string(scale, "Conv1/StyleMod/bias")].eval()
-            style2 = Dense(size(style2_w)...)
-            Flux.loadparams!(style2, params(style2_w', style2_b))
-
+            style2 = load_fc(
+                tf_synthesis[string(scale, "Conv1/StyleMod/weight")].eval(),
+                tf_synthesis[string(scale, "Conv1/StyleMod/bias")].eval()
+            )
 
             SynthesisNetwork(
                 nothing,
@@ -133,7 +177,8 @@ function StyleBasedGen(pyobj)
                 style1,
                 style2,
                 conv1_up,
-                conv2
+                conv2,
+                Upsample(:bilinear, size=(2,2))
             )
         end
     end
