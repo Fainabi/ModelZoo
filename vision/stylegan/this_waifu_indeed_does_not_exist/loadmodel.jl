@@ -1,6 +1,7 @@
 using PyCall
 using Flux
 using Random: randn
+using Images
 
 include("utils.jl")
 
@@ -43,6 +44,8 @@ mutable struct SynthesisNetwork
     conv2
 
     upsample
+
+    to_rgb
 end
 
 
@@ -61,22 +64,46 @@ w: style sample W space
 noise: sample in gaussian noises
 ...
 """
-function generate_sample(gen::StyleBasedGen, w, noise=nothing)
-    x = gen.synthesis[1].const_head
+function generate_sample(gen::StyleBasedGen, w, noise=nothing; n_layer=8)
+    x = gen.synthesis[1].const_head |> IN
     for (idx, layer) in enumerate(gen.synthesis)
-        if idx > 1
-            x = x |> layer.upsample |> layer.conv1_up
+        if idx > n_layer
+            break
         end
-        noise1 = isnothing(noise) ? randn() : noise[idx][1]
-        noise2 = isnothing(noise) ? randn() : noise[idx][2]
-        x += layer.noise1 * noise1
-        x = AdaIn(layer.style1(w), x)
-        x = layer.conv2(x) + layer.noise2 * noise2
-        x = AdaIn(layer.style2(w), x)
+        if idx > 1
+            x = x |> layer.upsample |> layer.conv1_up |> IN
+        end
+        # noise1 = isnothing(noise) ? randn() : noise[idx][1]
+        # noise2 = isnothing(noise) ? randn() : noise[idx][2]
+        # x += layer.noise1 * 
+        x = AdaIN(x, layer.style1(w)) |> IN
+        x = layer.conv2(x) |> IN
+        x = AdaIN(x, layer.style2(w)) |> IN
     end
+
+    return x
 end
 
+function saveimg(gen::StyleBasedGen, sample, layer_num)
+    img = gen.synthesis[layer_num].to_rgb(sample) |> IN
 
+    interval = [-1, 1]
+    scale = 255 / (interval[2] - interval[1])
+
+    img = (img * scale .+ (0.5 - interval[1]*scale)) / 255
+    img = map(img) do rgb
+        if rgb > 1
+            1f0
+        elseif rgb < 0
+            0f0
+        else
+            rgb
+        end
+    end
+
+    img = Float32.(permutedims(img[:,:,:,1], (3,2,1))) |> colorview(RGB)
+    save("test.jpg", img)
+end
 
 function Base.show(io::IO, gen::StyleBasedGen)
     print("8 FC Mapping + \nSynthesis(")
@@ -89,8 +116,9 @@ function Base.show(io::IO, gen::StyleBasedGen)
     println(")")
 end
 
-function load_conv(tf_conv_w, tf_conv_b)
-    cn = Conv((3,3), size(tf_conv_w, 3)=>size(tf_conv_w, 4); pad=1)
+function load_conv(tf_conv_w, tf_conv_b; kernel=(3,3), pad=1)
+    tf_conv_w = permutedims(tf_conv_w, (2,1,3,4))
+    cn = Conv(kernel, size(tf_conv_w, 3)=>size(tf_conv_w, 4); pad=pad)
     Flux.loadparams!(cn, params(tf_conv_w, tf_conv_b))
 
     cn
@@ -102,6 +130,7 @@ function load_fc(tf_w, tf_b, activation=identity)
 
     fc
 end
+
 
 function StyleBasedGen(pyobj)
     tf_mapping = pyobj.components["mapping"].trainables
@@ -117,7 +146,7 @@ function StyleBasedGen(pyobj)
         )
     end...)
 
-    synthesis = map(0:6) do i
+    synthesis = map(0:7) do i
         scale = 2^(i+2) |> x -> string(x, "x", x, "/")  # 8x8 to 256x256
 
         if i == 0
@@ -138,15 +167,23 @@ function StyleBasedGen(pyobj)
                 tf_synthesis[string(scale, "Conv/StyleMod/bias")].eval()
             )
 
+            to_rgb = load_conv(
+                tf_synthesis[string("ToRGB_lod", 7-i, "/weight")].eval(),
+                tf_synthesis[string("ToRGB_lod", 7-i, "/bias")].eval(),
+                kernel=(1,1),
+                pad=0
+            )
+
             SynthesisNetwork(
-                const_head, 
+                permutedims(const_head, (4,3,2,1)), 
                 noise1, 
                 noise2, 
                 style1, 
                 style2, 
                 nothing,
                 conv2, 
-                nothing
+                nothing,
+                to_rgb
             )
         else
             conv1_up = load_conv(
@@ -170,6 +207,14 @@ function StyleBasedGen(pyobj)
                 tf_synthesis[string(scale, "Conv1/StyleMod/bias")].eval()
             )
 
+            to_rgb = load_conv(
+                tf_synthesis[string("ToRGB_lod", 7-i, "/weight")].eval(),
+                tf_synthesis[string("ToRGB_lod", 7-i, "/bias")].eval(),
+                kernel=(1,1),
+                pad=0
+            )
+
+
             SynthesisNetwork(
                 nothing,
                 noise1,
@@ -178,7 +223,8 @@ function StyleBasedGen(pyobj)
                 style2,
                 conv1_up,
                 conv2,
-                Upsample(:bilinear, size=(2,2))
+                Upsample(:bilinear, scale=(2,2)),
+                to_rgb
             )
         end
     end
