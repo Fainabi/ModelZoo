@@ -36,15 +36,15 @@ XXXXXXXXX
 to play with it, run
 
 ```julia
-julia> include("sokoban.jl")
+julia> include("Sokoban.jl")
 
-julia> game = from_file("games/game1")
+julia> game = from_file("games/game4")
 
 julia> interact!(game)
 
 ```
 
-and type 'w', 's', 'a', 'd' then enter to execute each step. Type 'q' and enter to quit the game.
+and type 'w', 's', 'a', 'd' then enter to execute each action. Type 'q' and enter to quit the game.
 
 
 ## Train RL Agent
@@ -52,19 +52,21 @@ and type 'w', 's', 'a', 'd' then enter to execute each step. Type 'q' and enter 
 To create a game with agent:
 
 ```julia
-julia> include("agent.jl")
+julia> include("Sokoban.jl")
 
 julia> game = new_game("games/game0")
 ```
 
 To evaluate policy, run:
 ```julia
-julia> sweep(game, 10)  # sweep 10 times for iteratively updating Vs
+julia> dp = DP(game)
+
+julia> sweep(dp, 10)  # sweep 10 times for iteratively updating Vs
 ```
 
 After policy evaluating, just let the agent play to show the performance:
 ```julia
-julia> replay(game)
+julia> replay(dp)
 ```
 
 We choose random policy here, and does not improve the policy, so sweep there
@@ -91,4 +93,4 @@ termination condition.
 
 
 For a game with relative big state space, e.g. game5, it needs time to travel all states in every single sweep.
-It took a decade more sweeps to finish its playing.
+It took a decade more sweeps to finish its playing. For game with bigger state space, consider monte-carlo and TD methods. 

@@ -1,3 +1,7 @@
+function clear!()
+    Base.run(`cmd /c cls`)
+end
+
 function binomial_order(n, k)
     pos_state = Dict()
     posistions = []
