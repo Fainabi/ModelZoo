@@ -49,6 +49,7 @@ and type 'w', 's', 'a', 'd' then enter to execute each action. Type 'q' and ente
 
 ## Train RL Agent
 
+### Dynamic Programming
 To create a game with agent:
 
 ```julia
@@ -74,23 +75,82 @@ take $\gamma = 1$, and as a result, we would not take value iteration.
 
 In the book of `Reinforcement Learning: An introduction`
 the reward was in the sequence like:
+
 $$
-s_{t-1}, a_{t-1}; r_t, s_t, a_t; \cdots 
+    s_{t-1}, a_{t-1}; r_t, s_t, a_t; \cdots 
 $$
 
 and some examples assign 0 to the termination state, -1 to others.
 In sokoban, there exists many states that are dead states, in which 
 we can never reach the true solution in such state. So rather than give penalty
-to the agent, here we set to give positive reward when it reaches true end. And 
-thus the sequence is with in-time rewards
-$$
-s_{t-1}, a_{t-1}, r_{t-1}; s_t, a_t, r_t; \cdots 
-$$
+to the agent, here we set to give positive reward when it reaches true end. Note that
+the rewards are still generated in-action.
 
-another reason to take such approach is the implementation of policy iteration
-in ReinforcementLearning.jl, where the V(t+1) is factored with zero when meeting
-termination condition.
 
+### Monte-Carlo Methods
 
 For a game with relative big state space, e.g. game5, it needs time to travel all states in every single sweep.
 It took a decade more sweeps to finish its playing. For game with bigger state space, consider monte-carlo and TD methods. 
+
+```julia
+julia> game = new_game("games/game1")
+
+julia> mc = MC(game)
+
+julia> run(mc)
+```
+
+The default number of episodes is 100, and hook is `OptimalTrajectoryHook`, which record the best trajectory in training
+monte-carlo agent. Thus the command above is equal to
+
+```julia
+julia> run(mc, 100; hook=OptimalTrajectoryHook())
+```
+
+To replay the playing that agent took, run
+
+```julia
+julia> hook = run(mc)
+
+julia> replay(mc, hook)
+```
+
+or let it play again following its policy
+
+```julia
+julia> replay(mc)
+```
+
+These replay can be quit by typing 'q' without entering it.
+
+Agent would always take another action if the game is end, matching the sequence of
+
+$$ S_{t-1}, A_{t-1}; R_t, S_t, A_t. $$
+
+The small sokoban games can train agent very fast, while relative big ones need more episodes. 
+
+**Note:** The rewards for every step are supposed to be negative, to push monte-carlo agent to explorer
+new ways. Since the player can just walk up and down, without moving any of the boxes, and thus create 
+the infinite steps of episode, we have set a boundary for it. And if agent take steps more than that, 
+the game ends. If the game rushed into a dead state, the game ended and gave a punishment reward.
+
+Such punishment shall less or equal to maximum step number times every-step reward, or the agent may learn
+to go to these states to create an early end.
+
+
+In the Sokoban game, if the agent succeeds one single time, it learns rapidly to create solutions. 
+However, we initiate the state-value function with zeros, leaving no prior knowledge to agents. 
+In such a scenery, agents can only explore and explore until they come across the true ends. 
+To speed up the training, one can first make several DP steps, forming a rough preview of value functions,
+and then perform monte-carlo methods.
+
+```julia
+julia> game = new_game("games/game5"; step_reward=-1.0)
+
+julia> mc = MC(game)
+
+julia> sweep(mc, 10)  # value iteration
+
+julia> run(mc, 1000)  # monte-carlo prediction
+```
+

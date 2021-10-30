@@ -2,6 +2,13 @@ function clear!()
     Base.run(`cmd /c cls`)
 end
 
+function get_keypress()
+    ccall(:jl_tty_set_mode, Int32, (Ptr{Cvoid}, Int32), stdin.handle, true)
+    c = read(stdin, Char)
+    ccall(:jl_tty_set_mode, Int32, (Ptr{Cvoid}, Int32), stdin.handle, false)
+    c
+end
+
 function binomial_order(n, k)
     pos_state = Dict()
     posistions = []
@@ -9,7 +16,7 @@ function binomial_order(n, k)
     pos = collect(1:k)
     space_size = binomial(n, k)
     if space_size > 100000
-        error("This state space is too big for DP ($space_size), choose another game. ")
+        @warn "This state space is too big for DP ($space_size), consider non DP methods. "
     end
     for i in 1:space_size
         pos_state[copy(pos)] = i

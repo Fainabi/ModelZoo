@@ -5,7 +5,7 @@ using ProgressMeter: @showprogress
 """
     Dynamic Programming for Sokoban
 """
-mutable struct DP 
+mutable struct DP <: AbstractSokobanAgent
     game::SokobanGame
 
     V::TabularApproximator
@@ -15,7 +15,8 @@ mutable struct DP
         if policy_type == :TabularPolicy
             π = TabularPolicy(
                 table=Dict(zip(state_space(game.env_model), fill(1, length(state_space(game.env_model))))), 
-                n_action=length(action_space(game.env_model)))
+                n_action=length(action_space(game.env_model))
+            )
         end
         # in dp, we mostly care about V functions
         V = TabularVApproximator(n_state=length(state_space(game.env_model)), opt=InvDecay(1.0))
@@ -53,8 +54,11 @@ policy_iterate(agent::DP, n) = @showprogress 0.5 "Policy Iterating..." for _ in 
 end
 
 # one can see how the value changes if we perform value iteration
-value_iteration(agent::DP; max_iter=10) = @showprogress 0.5 "Value Iterating..." for _ in 1:max_iter
-    RLZoo.value_iteration!(V=agent.V, model=agent.game.env_model, γ=1.0, max_iter=1)
+function value_iteration(agent::DP, max_iter=10)
+    @showprogress 0.5 "Value Iterating..." for _ in 1:max_iter
+        RLZoo.value_iteration!(V=agent.V, model=agent.game.env_model, γ=1.0, max_iter=1)
+    end
+    policy_improvement!(V=agent.V, π=agent.π, model=agent.game.env_model, γ=1.0)
 end
 
 
@@ -107,8 +111,11 @@ function interact!(dp::DP)
 
         s = encode_state(game.env_model, game.now_game.player_pos, game.now_game.box_pos)
         for a in 1:4
-            (_, _, s′), _ = game.env_model(s, a)[1]
-            println(action_name[a], ": ", dp.V(s′))
+            (r, _, s′), _ = game.env_model(s, a)[1]
+            println(action_name[a], ": ", dp.V(s′), ", reward: ", r)
+        end
+        if dp.π isa TabularPolicy
+            println("π: ", action_name[dp.π(s)])
         end
 
         line = readline()

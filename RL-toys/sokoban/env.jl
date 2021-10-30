@@ -22,12 +22,12 @@ action_name = [
 """
 
 mutable struct SokobanEnvModel <: AbstractEnvironmentModel
-    state_position
-    position_state
-    reachable_unit
-    reachable_dict
+    state_position  # state number to position tuple
+    position_state  # position tuple to state number
+    reachable_unit  # list of reachable units
+    reachable_dict  # reachable unit to number
 
-    goal_pos
+    goal_pos  # goal position pairs
     end_reward
     step_reward
 end
@@ -41,8 +41,54 @@ function SokobanEnvModel(skb::Sokoban; end_reward=10., step_reward=0.)
 end
 
 is_terminated_env(skb_env::SokobanEnvModel, box_poses) = all(box -> box in skb_env.goal_pos, box_poses)
+
+"""
+    A game is dead if all box cannot move in any direction.
+"""
+function is_dead_game(skb_env::SokobanEnvModel, box_poses)
+    rest_boxes = filter(box_poses) do box
+        box ∉ skb_env.goal_pos
+    end |> Set
+    goal_boxes = filter(box_poses) do box
+        box in skb_env.goal_pos
+    end |> Set
+    reachables = Set(skb_env.reachable_unit)
+    while !isempty(rest_boxes)
+        box = pop!(rest_boxes)
+
+        if ((UP + box) ∉ reachables) || ((DOWN + box) ∉ reachables)
+            if ((LEFT + box) ∉ reachables) || ((RIGHT + box) ∉ reachables)
+                # semi-surrounded with walls
+                #   ##.
+                #   #O.
+                #   ...
+                return true
+            end
+
+            if ((LEFT + box) ∉ box_poses) && ((RIGHT + box) ∉ box_poses)
+                # feasible
+                continue
+            end
+
+            pop!(reachables, box)  # box must in reachables
+
+            # depends on the adjescent box(es)
+            if (LEFT + box) in goal_boxes
+                pop!(goal_boxes, LEFT + box)
+                push!(rest_boxes, LEFT + box)
+            end
+            if (RIGHT + box) in goal_boxes
+                pop!(goal_boxes, RIGHT + box)
+                push!(rest_boxes, RIGHT + box)
+            end
+        end
+        # feasible
+    end
+    false
+end
+
 function Base.show(io::IO, skb_env::SokobanEnvModel)
-    println(io, "state space size: ", length(skb_env.position_state))
+    println(io, "state space size: ", length(skb_env.position_state), " * ", length(skb_env.reachable_unit))
 end
 
 function encode_state(skb_env::SokobanEnvModel, player_pos, boxes_pos)
@@ -84,6 +130,14 @@ function (m::SokobanEnvModel)(s::Int, a::Int)
     next_pos = player_pos + a
     next_next_pos = next_pos + a
 
+    # r is taken from the former state: r_{t-1}
+    # and thus associated terminal information is also for the former state
+    t = is_terminated_env(m, box_poses)
+    r = t ? m.end_reward : m.step_reward
+    if is_dead_game(m, box_poses)
+        r = -m.end_reward
+        t = true
+    end
 
     if next_pos ∉ m.reachable_unit # wall
         # do nothing        
@@ -99,10 +153,9 @@ function (m::SokobanEnvModel)(s::Int, a::Int)
         player_pos = next_pos
     end
 
-    r = is_terminated_env(m, box_poses) ? m.end_reward : m.step_reward  # end game with reward of 1
 
     # strategy to choose r and iteration, see readme
-    [(r, is_terminated_env(m, box_poses), encode_state(m, player_pos, box_poses)) => 1.0]  # deteministic process
+    [(r, t, encode_state(m, player_pos, box_poses)) => 1.0]  # deteministic process
 end
 
 RLBase.state_space(m::SokobanEnvModel) = 
@@ -125,6 +178,8 @@ mutable struct SokobanGame <: AbstractEnv
     reward
     state
     terminated
+    max_steps  # maximum steps per episode for preventing loop and stucking
+    now_step   # step taken for each episode
 end
 
 #=
@@ -142,18 +197,35 @@ function (env::SokobanGame)(a::Int)
     env.reward = r
     env.state = s′
     env.terminated = t
+    env.now_step += 1
+
+    if env.now_step > env.max_steps && !t
+        # punish for wanderring
+        env.terminated = true
+        # env.reward = -env.env_model.end_reward
+    end
 end
 function RLBase.reset!(game::SokobanGame) 
     game.now_game = copy(game.origin_game)
     game.reward = 0
+    game.terminated = false
+    game.state = encode_state(game.env_model, game.now_game.player_pos, game.now_game.box_pos)
+    game.now_step = 0
 end
 
 
-function new_game(filename)
+function new_game(filename, max_step=100; step_reward=0.0, end_reward=10.0)
+    end_reward = max(-step_reward*max_step * 2, end_reward)
     game = from_file(filename)
-    env_model = SokobanEnvModel(game)
+    env_model = SokobanEnvModel(game; end_reward=end_reward, step_reward=step_reward)
     state = encode_state(env_model, game.player_pos, game.box_pos)
-    SokobanGame(copy(game), game, env_model, 0, state, false)
+    SokobanGame(copy(game), game, env_model, 0, state, false, max_step, 0)
+end
+
+function load_state(game::SokobanGame, state::Int)
+    player, boxes = decode_state(game.env_model, state)
+    game.now_game.player_pos = player
+    game.now_game.box_pos = boxes
 end
 
 function Base.show(io::IO, game::SokobanGame)
