@@ -83,7 +83,7 @@ mutable struct MC <: AbstractSokobanAgent
                     P = TabularVApproximator(
                         n_state=n_state,
                         init=0.0,
-                        opt=InvDev(1.0),
+                        opt=InvDecay(1.0),
                     )
 
                     (V, G, P)
@@ -103,18 +103,63 @@ mutable struct MC <: AbstractSokobanAgent
                         A[a]
                     end
                 )
-            else
-                # ReinforcementLearning.jl did not implement EVERY_VISIT for off-policy learning
-                # and neither the Q function prediction.
-                # Here we are not giving more examples
-                error("MC off policy for Q function is not implemented.")
+            else  # Q functions
+                Q = TabularQApproximator(
+                    n_state=n_state,
+                    n_action=n_action,
+                    init=0.0,
+                    opt=Descent(1.0),
+                )
+                G = TabularQApproximator(
+                    n_state=n_state,
+                    n_action=n_action,
+                    init=0.0,
+                    opt=InvDecay(1.0),
+                )
+
+                approximator = if sampling == ORDINARY_IMPORTANCE_SAMPLING
+                    (Q, G)
+                elseif sampling == WEIGHTED_IMPORTANCE_SAMPLING
+                    P = TabularQApproximator(
+                        n_state=n_state,
+                        n_action=n_action,
+                        init=0.0,
+                        opt=InvDecay(1.0)
+                    )
+
+                    (Q, G, P)
+                end
+                
+                QBasedPolicy(
+                    learner = MonteCarloLearner(
+                        approximator=approximator,
+                        kind=kind,
+                        sampling=sampling,
+                        γ=γ,
+                    ),
+                    explorer = GreedyExplorer()
+                )
             end  
 
             # no polluting the general prob(AbstractPolicy, s, a)
-            @eval function RLBase.prob(π::typeof($π_t), env, a)
-                # greedy
-                π(env) == a
-            end 
+            if type == :V
+                @eval function RLBase.prob(π::typeof($π_t), env, a)
+                    # greedy
+                    π.mapping(env, π.learner) == a
+                end 
+            elseif type == :Q
+                @eval function RLBase.prob(π::typeof($π_t), env::AbstractEnv, a)
+                    values = map(a -> π.learner.approximator[1](state(env), a), legal_action_space(env))
+                    π.explorer(values) == a
+                end
+
+                # for mapping env to action, since a policy with multiple approximators
+                # does not have such mapping.
+                @eval function (π::typeof($π_t))(env::AbstractEnv)
+                    values = map(a -> π.learner.approximator[1](state(env), a), legal_action_space(env))
+                    π.explorer(values)
+                end
+            end
 
             OffPolicy(
                 π_t,

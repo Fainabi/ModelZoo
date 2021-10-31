@@ -179,7 +179,12 @@ function interact!(skb_agent::AbstractSokobanAgent)
                 println(action_name[a], ": ", approximator(s, a), ", reward: ", r)
             end
         end
-        println("π: ", action_name[policy(game)])
+        if policy isa QBasedPolicy
+            pr = [prob(policy, game, a) for a in action_space(game)]
+            println("π: ", action_name[policy.explorer(pr)])
+        else
+            println("π: ", action_name[policy(game)])
+        end
 
         line = readline()
         if length(line) == 0
@@ -213,3 +218,4 @@ end
 
 include("policy_iteration.jl")
 include("monte-carlo.jl")
+# include("td.jl")

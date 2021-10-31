@@ -182,9 +182,11 @@ or
 julia> mc = MC(game; sampling=WEIGHTED_IMPORTANCE_SAMPLING)
 ```
 
-Note that our behaviour policy is a random policy, and thus it needs more and more episodes
-for target policy to learn from the random policy. It is recommanded to play with game0 to game3,
-which have smaller state space.
+Note that our behaviour policy is a random policy while target policy is greedy, 
+and thus it needs more and more episodes for target policy to learn from the random policy. 
+It is recommanded to play with game0 to game2, which have smaller state space.
 
-_ReinforcementLearning.jl (v0.10.0)_ did not provide implementation of off policy MC with `EVERY_VISIT`.
+
+
+
 
