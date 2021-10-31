@@ -1,5 +1,5 @@
 using ReinforcementLearning
-using Flux.Optimise: InvDecay
+using Flux.Optimise: InvDecay, Descent
 
 mutable struct MC <: AbstractSokobanAgent
     game::SokobanGame
@@ -61,9 +61,65 @@ mutable struct MC <: AbstractSokobanAgent
             end
 
         else  # off policy
-            if type == :V
+            π_t = if type == :V
+                V = TabularVApproximator(
+                    n_state=n_state,
+                    init=0.0,
+                    opt=Descent(1.0),  # V is tracked to G
+                )
+                G = TabularVApproximator(
+                    n_state=n_state,
+                    init=0.0,
+                    opt=InvDecay(1.0),  # returns are averaged
+                )
 
-            end  # ReinforcementLearning.jl did not implement EVERY_VISIT for off-policy learning
+
+                approximator = if sampling == ORDINARY_IMPORTANCE_SAMPLING
+                    (V, G)
+                elseif sampling == WEIGHTED_IMPORTANCE_SAMPLING
+                    # returns are weighted averaged with P: G / P
+                    # see `ReinforcementLearningZoo.monte_carlo_learner.jl`
+                    # Thus (∑G)/(∑P) = mean(G)/mean(P)
+                    P = TabularVApproximator(
+                        n_state=n_state,
+                        init=0.0,
+                        opt=InvDev(1.0),
+                    )
+
+                    (V, G, P)
+                end
+                
+                VBasedPolicy(
+                    learner = MonteCarloLearner(
+                        approximator=approximator,
+                        kind=kind,
+                        sampling=sampling,
+                        γ=γ
+                    ),
+                    mapping = function (env, L)
+                        A = legal_action_space(env)
+                        values = map(a -> L.approximator[1](state(child(env, a))), A)
+                        _, a = findmax(values)
+                        A[a]
+                    end
+                )
+            else
+                # ReinforcementLearning.jl did not implement EVERY_VISIT for off-policy learning
+                # and neither the Q function prediction.
+                # Here we are not giving more examples
+                error("MC off policy for Q function is not implemented.")
+            end  
+
+            # no polluting the general prob(AbstractPolicy, s, a)
+            @eval function RLBase.prob(π::typeof($π_t), env, a)
+                # greedy
+                π(env) == a
+            end 
+
+            OffPolicy(
+                π_t,
+                RandomPolicy(action_space(game))
+            )
         end
 
         # VectorWSARTTrajectory records importance sampling ratio.
@@ -73,10 +129,21 @@ mutable struct MC <: AbstractSokobanAgent
     end
 end
 
+function reset_approximator(approximator)
+    approximator.table .= 0.0
+    if approximator.optimizer isa InvDecay
+        empty!(approximator.optimizer.state)
+    end
+end
+
 function reset!(mc::MC)
     RLBase.reset!(mc.game)
-    mc.agent.policy.learner.approximator.table .= 0.0
-    empty!(mc.agent.policy.learner.approximator.optimizer.state)
+    approximator = mc.agent.policy.learner.approximator
+    if approximator isa Tuple
+        reset_approximator.(approximator)
+    else
+        reset_approximator(approximator)
+    end
 end
 
 function Base.show(io::IO, mc::MC)
@@ -90,10 +157,26 @@ function Base.run(mc::MC, episode=100; hook=OptimalTrajectoryHook())
 end
 
 sweep(mc::MC, n) = @showprogress 0.5 "Evaluating..." for _ in 1:n 
-    RLZoo.value_iteration!(
-        V=mc.agent.policy.learner.approximator, 
-        model=mc.game.env_model, 
-        γ=1.0, 
-        max_iter=1
-    )
+    if mc.agent.policy isa VBasedPolicy
+        RLZoo.value_iteration!(
+            V=mc.agent.policy.learner.approximator, 
+            model=mc.game.env_model, 
+            γ=1.0, 
+            max_iter=1
+        )
+    elseif mc.agent.policy isa QBasedPolicy
+        # value iteration for Q functions
+        model = mc.game.env_model
+        Q = mc.agent.policy.learner.approximator
+        γ = mc.agent.policy.learner.γ
+        for s in state_space(model), a in action_space(model)
+            q = sum(
+                p * (r + (1 - t) * γ * maximum(
+                    Q(s′, a′) for a′ in action_space(model)
+                )) for ((r, t, s′), p) in model(s, a)
+            )
+            δ = Q(s, a) - q
+            update!(Q, (s,a) => δ)
+        end
+    end
 end

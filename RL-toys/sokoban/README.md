@@ -87,7 +87,8 @@ to the agent, here we set to give positive reward when it reaches true end. Note
 the rewards are still generated in-action.
 
 
-### Monte-Carlo Methods
+### Monte-Carlo 
+#### On Policy MC
 
 For a game with relative big state space, e.g. game5, it needs time to travel all states in every single sweep.
 It took a decade more sweeps to finish its playing. For game with bigger state space, consider monte-carlo and TD methods. 
@@ -98,6 +99,17 @@ julia> game = new_game("games/game1")
 julia> mc = MC(game)
 
 julia> run(mc)
+```
+
+To construct agent with action-value function, add `:Q` parameter:
+```julia
+julia> mc = MC(game, :Q)
+```
+
+One can also set type of first-visit MC or every-visit MC:
+
+```julia
+julia> mc = MC(game, :Q; kind=EVERY_VISIT)
 ```
 
 The default number of episodes is 100, and hook is `OptimalTrajectoryHook`, which record the best trajectory in training
@@ -153,4 +165,26 @@ julia> sweep(mc, 10)  # value iteration
 
 julia> run(mc, 1000)  # monte-carlo prediction
 ```
+
+#### Off Policy MC
+
+To construct an off-policy MC agent, run:
+
+```julia
+julia> game = new_game("games/game2"; step_reward=-1.0)
+
+julia> mc = MC(game; sampling=ORDINARY_IMPORTANCE_SAMPLING)
+```
+
+or
+
+```julia
+julia> mc = MC(game; sampling=WEIGHTED_IMPORTANCE_SAMPLING)
+```
+
+Note that our behaviour policy is a random policy, and thus it needs more and more episodes
+for target policy to learn from the random policy. It is recommanded to play with game0 to game3,
+which have smaller state space.
+
+_ReinforcementLearning.jl (v0.10.0)_ did not provide implementation of off policy MC with `EVERY_VISIT`.
 

@@ -103,6 +103,11 @@ function replay(skb_agent::AbstractSokobanAgent; time_gap=0.5)
     game = skb_agent.game
     RLBase.reset!(game)
     agent = skb_agent.agent
+    policy = if agent.policy isa OffPolicy
+        agent.policy.π_target
+    else
+        agent.policy
+    end
     max_step = game.max_steps
 
     quit = false
@@ -128,7 +133,7 @@ function replay(skb_agent::AbstractSokobanAgent; time_gap=0.5)
         clear!()
 
         s = game.state
-        action = agent(game)
+        action = policy(game)
         
         step!(game.now_game, action)
         game(action)
@@ -149,7 +154,17 @@ function interact!(skb_agent::AbstractSokobanAgent)
     game = skb_agent.game
     RLBase.reset!(game)
     agent = skb_agent.agent
+    policy = if agent.policy isa OffPolicy
+        agent.policy.π_target
+    else
+        agent.policy
+    end
 
+    approximator = if policy.learner.approximator isa Tuple  # off policy
+        policy.learner.approximator[1]
+    else
+        policy.learner.approximator
+    end
     while true
         clear!()
         draw_symbols(game.now_game)
@@ -157,13 +172,14 @@ function interact!(skb_agent::AbstractSokobanAgent)
         s = encode_state(game.env_model, game.now_game.player_pos, game.now_game.box_pos)
         for a in 1:4
             (r, _, s′), _ = game.env_model(s, a)[1]
-            if agent.policy.learner.approximator isa TabularVApproximator
-                println(action_name[a], ": ", agent.policy.learner(s′), ", reward: ", r)
-            else
-                # TabularQApproximator
+
+            if approximator isa TabularVApproximator
+                println(action_name[a], ": ", approximator(s′), ", reward: ", r)
+            elseif approximator isa TabularQApproximator
+                println(action_name[a], ": ", approximator(s, a), ", reward: ", r)
             end
         end
-        println("π: ", action_name[agent(game)])
+        println("π: ", action_name[policy(game)])
 
         line = readline()
         if length(line) == 0
@@ -191,7 +207,7 @@ function interact!(skb_agent::AbstractSokobanAgent)
             action_state_map[UP]
         end
 
-        game(action)
+        game(action)  # renew state
     end
 end
 
