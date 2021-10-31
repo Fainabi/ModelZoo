@@ -1,56 +1,15 @@
+include("hook.jl")
+
 abstract type AbstractSokobanAgent end
-
-
-mutable struct StatesVisitHook <: AbstractHook
-    visit::Dict{Int, Int}
-    StatesVisitHook() = new(Dict())
+function Base.show(io::IO, sokoban_agent::AbstractSokobanAgent)
+    show(io, sokoban_agent.game)
+    println()
+    show(io, sokoban_agent.agent)
 end
-function (h::StatesVisitHook)(::PostActStage, agent, env)
-    h.visit[state(env)] = get(h.visit, state(env), 0) + 1
-end
-
-mutable struct OptimalTrajectoryHook <: AbstractHook
-    trajectory::Trajectory
-    OptimalTrajectoryHook() = new(VectorWSARTTrajectory())
-end
-function (h::OptimalTrajectoryHook)(::PostEpisodeStage, agent, env)
-    ret, step = trajectory_return(h.trajectory)
-    if step == 0
-        ret = -Inf64
-    end
-    new_ret, new_step = trajectory_return(agent.trajectory)
-    if ret > new_ret
-        return
-    elseif ret == new_ret && step < new_step
-        return
-    else
-        empty!(h.trajectory)
-        for s in agent.trajectory[:state]
-            push!(h.trajectory[:state], s)
-        end
-        for a in agent.trajectory[:action]
-            push!(h.trajectory[:action], a)
-        end
-        for t in agent.trajectory[:terminal]
-            push!(h.trajectory[:terminal], t)
-        end
-        for w in agent.trajectory[:weight]
-            push!(h.trajectory[:weight], w)
-        end
-        for r in agent.trajectory[:reward]
-            push!(h.trajectory[:reward], r)
-        end
-    end
+function Base.run(sokoban_agent::AbstractSokobanAgent, episode=100; hook=OptimalTrajectoryHook())
+    run(sokoban_agent.agent, sokoban_agent.game, StopAfterEpisode(episode), hook)
 end
 
-function trajectory_return(trajectory::Trajectory, γ=1.0)
-    r = 0
-    len = length(trajectory[:reward])
-    for v in reverse(trajectory[:reward])
-        r = v + γ*r
-    end
-    r, len
-end
 
 function replay(game::SokobanGame, trajectory=Trajectory; time_gap=0.5)
     game.now_game = copy(game.origin_game)
@@ -160,7 +119,10 @@ function interact!(skb_agent::AbstractSokobanAgent)
         agent.policy
     end
 
-    approximator = if policy.learner.approximator isa Tuple  # off policy
+    approximator = if policy.learner isa DoubleLearner
+        # choose one
+        policy.learner.L1.approximator
+    elseif policy.learner.approximator isa Tuple  # off policy
         policy.learner.approximator[1]
     else
         policy.learner.approximator
@@ -170,6 +132,7 @@ function interact!(skb_agent::AbstractSokobanAgent)
         draw_symbols(game.now_game)
 
         s = encode_state(game.env_model, game.now_game.player_pos, game.now_game.box_pos)
+        # print relate four states' or actions' values
         for a in 1:4
             (r, _, s′), _ = game.env_model(s, a)[1]
 
@@ -179,6 +142,8 @@ function interact!(skb_agent::AbstractSokobanAgent)
                 println(action_name[a], ": ", approximator(s, a), ", reward: ", r)
             end
         end
+
+        # print policy's action
         if policy isa QBasedPolicy
             pr = [prob(policy, game, a) for a in action_space(game)]
             println("π: ", action_name[policy.explorer(pr)])
@@ -186,6 +151,7 @@ function interact!(skb_agent::AbstractSokobanAgent)
             println("π: ", action_name[policy(game)])
         end
 
+        # command from terminal
         line = readline()
         if length(line) == 0
             buf = 'x'
@@ -218,4 +184,4 @@ end
 
 include("policy_iteration.jl")
 include("monte-carlo.jl")
-# include("td.jl")
+include("td.jl")

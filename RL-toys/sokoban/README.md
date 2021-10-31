@@ -182,11 +182,34 @@ or
 julia> mc = MC(game; sampling=WEIGHTED_IMPORTANCE_SAMPLING)
 ```
 
-Note that our behaviour policy is a random policy while target policy is greedy, 
+Note that our behavior policy is a random policy while target policy is greedy, 
 and thus it needs more and more episodes for target policy to learn from the random policy. 
-It is recommanded to play with game0 to game2, which have smaller state space.
+It is recommended to play with game0 to game2, which have smaller state space.
+
+Similarly, add `:Q` and `EVERY_VISIT` parameters will create respective agents:
+
+```julia
+julia> mc = MC(game, :Q; sampling=WEIGHTED_IMPORTANCE_SAMPLING, kind=EVERY_VISIT)
+```
 
 
+### Temporal-Difference
 
+In TD learning, we only implement TD control, and thus provide three methods:
 
+- SARSA: On-policy TD control, use `SARSA`
+- Q-Learning: Off-policy TD control, use `SARS`
+- Expected SARSA: On/Off policy TD control, use `ExpectedSARSA`
+
+To construct these wrapped agents, run:
+
+```julia
+julia> game = new_game("games/game3"; step_reward=-1.0)
+
+julia> sarsa = SARSA(game)
+
+julia> run(sarsa, 1000)
+```
+
+For double learner, use `DoubleSokobanLearner`.
 
