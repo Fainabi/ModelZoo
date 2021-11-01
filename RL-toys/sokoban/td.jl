@@ -16,7 +16,7 @@ Batch updating is implemented.
 mutable struct TD <: AbstractSokobanAgent
     game::SokobanGame
     agent::Agent
-    function TD(game::SokobanGame, method; α=0.5, γ=1.0, ϵ=0.1)
+    function TD(game::SokobanGame, method; α=0.5, γ=1.0, ϵ=0.1, n=0)
         n_state = length(state_space(game))
         n_action = length(action_space(game))
 
@@ -32,7 +32,7 @@ mutable struct TD <: AbstractSokobanAgent
                 approximator=Q,
                 method=method,
                 γ=γ,
-                # n=0  # TD(0)
+                n=n
             ),
             explorer=EpsilonGreedyExplorer(ϵ)
         )
@@ -41,9 +41,9 @@ mutable struct TD <: AbstractSokobanAgent
     end
 end
 
-SARSA(game::SokobanGame; α=0.5, γ=1.0, ϵ=0.1) = TD(game, :SARSA; α=α, γ=γ, ϵ=ϵ)
-SARS(game::SokobanGame; α=0.5, γ=1.0, ϵ=0.1) = TD(game, :SARS; α=α, γ=γ, ϵ=ϵ)
-ExpectedSARSA(game::SokobanGame; α=0.5, γ=1.0, ϵ=0.1) = TD(game, :ExpectedSARSA; α=α, γ=γ, ϵ=ϵ)
+SARSA(game::SokobanGame; α=0.5, γ=1.0, ϵ=0.1, n=0) = TD(game, :SARSA; α=α, γ=γ, ϵ=ϵ, n=n)
+SARS(game::SokobanGame; α=0.5, γ=1.0, ϵ=0.1, n=0) = TD(game, :SARS; α=α, γ=γ, ϵ=ϵ, n=n)
+ExpectedSARSA(game::SokobanGame; α=0.5, γ=1.0, ϵ=0.1, n=0) = TD(game, :ExpectedSARSA; α=α, γ=γ, ϵ=ϵ, n=n)
 
 
 mutable struct DoubleSokobanLearner <: AbstractSokobanAgent
@@ -67,11 +67,13 @@ end
 
 
 
-# TD(0) is a prediction method
+
+
+# TD(n) is a predictive method
 mutable struct SRS <: AbstractSokobanAgent
     game::SokobanGame
     agent::Agent
-    function SRS(game; α=0.5, γ=1.0, ϵ=0.1)
+    function SRS(game; α=0.5, γ=1.0, n=0, trajectory=VectorSARTTrajectory())
         n_state = length(state_space(game))
 
         V = TabularVApproximator(
@@ -83,11 +85,12 @@ mutable struct SRS <: AbstractSokobanAgent
             learner=TDLearner(
                 approximator=V,
                 method=:SRS,
-                γ=γ
+                γ=γ,
+                n=n
             ),
         )
 
-        new(game, Agent(policy=policy, trajectory=VectorSARTTrajectory()))
+        new(game, Agent(policy=policy, trajectory=trajectory))
     end
 end
 

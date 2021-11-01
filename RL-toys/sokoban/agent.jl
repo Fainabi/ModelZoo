@@ -1,4 +1,5 @@
 include("hook.jl")
+include("trajectory.jl")
 
 abstract type AbstractSokobanAgent end
 function Base.show(io::IO, sokoban_agent::AbstractSokobanAgent)

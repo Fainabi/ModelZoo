@@ -6,6 +6,9 @@ function (h::StatesVisitHook)(::PostActStage, agent, env)
     h.visit[state(env)] = get(h.visit, state(env), 0) + 1
 end
 
+"""
+    OptimalTrajectoryHook store the trajectory with best return
+"""
 mutable struct OptimalTrajectoryHook <: AbstractHook
     trajectory::Trajectory
     OptimalTrajectoryHook() = new(VectorWSARTTrajectory())
@@ -44,7 +47,7 @@ function (h::OptimalTrajectoryHook)(::PostEpisodeStage, agent, env)
     end
 end
 
-function trajectory_return(trajectory::Trajectory, γ=1.0)
+function trajectory_return(trajectory::AbstractTrajectory, γ=1.0)
     r = 0
     len = length(trajectory[:reward])
     for v in reverse(trajectory[:reward])
