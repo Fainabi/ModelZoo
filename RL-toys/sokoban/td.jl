@@ -70,6 +70,7 @@ end
 
 
 # TD(n) is a predictive method
+# Trajectory can use BatchTDVectorTrajectory
 mutable struct SRS <: AbstractSokobanAgent
     game::SokobanGame
     agent::Agent
@@ -91,6 +92,43 @@ mutable struct SRS <: AbstractSokobanAgent
         )
 
         new(game, Agent(policy=policy, trajectory=trajectory))
+    end
+end
+
+# DynaAgent
+mutable struct Dyna <: AbstractSokobanAgent
+    game::SokobanGame
+    agent::DynaAgent
+    function Dyna(game::SokobanGame, method=:SARS; model=ExperienceBasedSamplingModel(), α=0.5, γ=1.0, ϵ=0.1, n=0, plan_step=10)
+        n_state = length(state_space(game))
+        n_action = length(action_space(game))
+
+        Q = TabularQApproximator(
+            n_state=n_state,
+            n_action=n_action,
+            opt=Descent(α)
+        )
+
+        policy = QBasedPolicy(
+            learner=TDLearner(
+                approximator=Q,
+                method=method,
+                γ=γ,
+                n=n
+            ),
+            explorer=EpsilonGreedyExplorer(ϵ; is_break_tie=true)
+        )
+
+        new(
+            game,
+            DynaAgent(
+                policy=policy,                          # direct RL and acting
+                model=model,                            # model learning, Dyna-Q+ uses TimeBasedSamplingModel(;n_actions=4)
+                                                        # also consider PrioritizedSweepingSamplingModel()
+                trajectory=VectorSARTTrajectory(),
+                plan_step=plan_step,                    # for indirect RL or Q planning
+            ),
+        )
     end
 end
 

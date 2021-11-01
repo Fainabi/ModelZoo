@@ -1,6 +1,8 @@
 
 """
-    BatchVectorSARTTrajectory
+    BatchTDVectorTrajectory
+
+This implementation is designed for TD(λ) methods.
 """
 mutable struct BatchTDVectorTrajectory <: AbstractTrajectory
     batchsize::Int
