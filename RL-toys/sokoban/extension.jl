@@ -210,4 +210,35 @@ function RLZoo._update!(
 end
 
 
+# PrioritizedSweepingSamplingModel
+#   Simply copy the source codes in `td_learner.jl` but
+#   change for loop in updating priority
+function RLBase.update!(
+    p::QBasedPolicy{<:TDLearner},
+    m::PrioritizedSweepingSamplingModel,
+    ::AbstractTrajectory,
+    env::AbstractEnv,
+    ::Union{PreActStage,PostEpisodeStage},
+)
+    if p.learner.method == :SARS
+        transition = sample(m)
+        if !isnothing(transition)
+            s, a, r, t, s′ = transition
+            traj = VectorSARTTrajectory()
+            push!(traj; state = s, action = a, reward = r, terminal = t)
+            push!(traj; state = s′, action = a)  # here a is a dummy one
+            update!(p.learner, traj, env, t ? POST_EPISODE_STAGE : PRE_ACT_STAGE)
+
+            # update priority
+            for (s̄, ā, r̄, d̄) in get(m.predecessors, s, [])
+                P = RLBase.priority(p.learner, (s̄, ā, r̄, d̄, s))
+                if P ≥ m.θ
+                    m.PQueue[(s̄, ā)] = P
+                end
+            end
+        end
+    else
+        @error "unsupported method $(p.learner.method)"
+    end
+end
 
