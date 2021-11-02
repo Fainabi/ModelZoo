@@ -213,3 +213,17 @@ julia> run(sarsa, 1000)
 
 For double learner, use `DoubleSokobanLearner`.
 
+### Planning & Learning
+Dyna-Q, Dyna-Q+ and Prioritized Sweeping are construct using `Dyna` wrapper
+with keyword parameter `model`:
+
+```julia
+julia> dyna_q = Dyna(game; model=ExperienceBasedSamplingModel())  # default
+
+julia> dyna_q_plus = Dyna(game; model=TimeBasedSamplingModel(;n_actions=4))
+
+julia> prioritized = Dyna(game; model=PrioritizedSweepingSamplingModel())
+```
+
+One note for prioritized sweeping is that, the implementation in `ReinforcementLearning.jl`(`td_learner.jl`, line 237)
+directly get the value from dictionary. It has no problem in the notebook `Chapter08_Maze.jl`, since the reward of every non terminal step is zero. But if we set it nonzero, and with zero initialized state values, then model would immediately detect the changes, and thus try to get its predecessors. However, at the first step, such dictionary has no entries, and thus throw a `KeyError: key ... not found`. One who wants to use prioritized sweeping model needs to set every step reward with zero. 
