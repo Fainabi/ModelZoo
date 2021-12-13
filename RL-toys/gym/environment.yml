@@ -1,0 +1,4 @@
+name: gym
+dependencies: 
+  - python=3.7
+  - gym
