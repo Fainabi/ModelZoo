@@ -21,7 +21,7 @@ function RLBase.reset!(env::CartPoleEnv)
 end
 
 RLBase.state_space(::CartPoleEnv) = WorldSpace()
-RLBase.state(env::CartPoleEnv) = env.env.env.state
+RLBase.state(env::CartPoleEnv) = collect(env.env.env.state)
 
 RLBase.action_space(::CartPoleEnv) = Base.OneTo(2)
 RLBase.reward(env::CartPoleEnv) = env.reward

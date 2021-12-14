@@ -7,5 +7,7 @@ function (h::RenderHook)(::PostActStage, agent, env)
 end
 
 function (h::RenderHook)(::PostExperimentStage, agent, env)
-    close(env)
+    if h.close_at_end
+        close(env)
+    end
 end
