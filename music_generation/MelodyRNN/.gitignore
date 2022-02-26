@@ -1,0 +1,11 @@
+# the magenta source files
+magenta/
+
+# generated midi files
+*.midi
+
+# dataset
+dataset/
+
+# saved model
+*.jld2
