@@ -13,6 +13,7 @@ Base.@kwdef struct KrnModelArgs
     epochs::Int     = 5
     seq_length::Int = 3
     batch_size::Int = 32
+    device          = gpu
 end
 
 function train_model(dataset_paths)
@@ -29,32 +30,21 @@ function train_model(dataset_paths)
     end
 
     dataset, token_map = generate_training_sequences(songs, args.seq_length)
+    xs, ys = dataset
+    xs = args.device.(xs)  # arrays of matrix
+    ys = args.device(ys)   # a single matrix
 
-    dataloader = Flux.DataLoader(dataset; batchsize=args.batch_size)
+    dataloader = Flux.DataLoader((xs..., ys); batchsize=args.batch_size)
 
-    # construct a network
+    # construct a neural network
     model = model_for_krn(length(token_map), args.hidden_dim)
+    to_device(model, args.device)
 
     # train
     opt = ADAM(args.lr)
     loss_fn = Flux.Losses.logitcrossentropy
-    objective(x, y) = mean(@. loss_fn(model(x), y))
 
-    evalcb() = begin
-        x, y = dataset
-        ŷ = map(x) do seq
-            model(seq)
-        end
-
-        losses = mean(loss_fn.(ŷ, y))
-        acc = map(ŷ, y) do pred, label
-            onecold(pred, token_map) == onecold(label, token_map)
-        end |> mean
-
-        println("losses: ", losses, ", acc: ", acc)
-    end
-
-    for epoch in 1:1#args.epochs
+    for epoch in 1:args.epochs
         println("Epoch: ", epoch)
 
         accumulated_losses = 0.0
@@ -65,33 +55,37 @@ function train_model(dataset_paths)
         for data in dataloader
 
             # compute gradient and update
-            ps = params(model)
+            ps = params(model)  # get trainable parameters
 
-            x, y = data
+            y = data[end]
+            x = data[1:end-1]
+
+            # reset rnn state
+            # In batch training, different size of mini batch dataset may be constructed,
+            # e.g.  32, 32, ..., 32, 10
+            # and the last training step will cause `DimensionMismatch` error,
+            # since the inner state will be tracked in Zygote, which has size of (seq_len, 32).
+            # Thus here need to reset it first, before computing the gradients.
+            Flux.reset!(model.rnn)
+
             loss, back = Zygote.pullback(ps) do 
                 # compute predictions
-                ŷ = map(x) do seq
-                    model(seq)
-                end
+                ŷ = model(x)
 
-                # compute accurancy
+                # compute accurancy, ignore the gradients of computation
                 Zygote.ignore() do 
-                    acc_res = map(ŷ, y) do pred, label
-                        onecold(pred, token_map) == onecold(label, token_map)
-                    end
+                    acc_res = onecold(ŷ, token_map) .== onecold(y, token_map)
                     accumulated_size[1] += length(acc_res)
                     accumulated_acc[1] += sum(acc_res)
                 end
 
                 # return loss
-                mean(loss_fn.(ŷ, y))
+                loss_fn(ŷ, y)
             end
 
             gs = back(one(loss))
 
             Flux.update!(opt, ps, gs)
-            # Flux.train!(objective, params(model), dataloader, opt, cb=evalcb)
-
 
             # log
             accumulated_losses += loss
@@ -102,7 +96,8 @@ function train_model(dataset_paths)
     end
 
 
-    # save and evaluate
+    # save the model, parameters need loading on cpu
+    to_device(model, cpu)
     @save "deutschl_model.jld2" model token_map
 end
 

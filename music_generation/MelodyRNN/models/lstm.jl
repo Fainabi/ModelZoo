@@ -1,13 +1,14 @@
 # this file provides model for `krnreader.jl`
+# The structure is similar to base melodyrnn, which needs a note ranging,
+# and take midi event in one-hot vectors as input. 
 
 using Flux
 
-struct KrnModel
+mutable struct KrnModel
     rnn
     mlp
 end
 
-# Flux.trainable(m::KrnModel) = (Flux.trainable(m.rnn), Flux.trainable(m.mlp))
 Flux.params(m::KrnModel) = Flux.params(m.rnn, m.mlp)
 
 function model_for_krn(note_dim, hidden_dim)
@@ -18,6 +19,12 @@ function model_for_krn(note_dim, hidden_dim)
             Dense(hidden_dim, note_dim)
         )
     )
+end
+
+function to_device(m::KrnModel, device)
+    m.rnn = device(m.rnn)
+    m.mlp = device(m.mlp)
+    m
 end
 
 function (m::KrnModel)(seq)

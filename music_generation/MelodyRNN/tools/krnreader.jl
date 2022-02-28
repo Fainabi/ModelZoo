@@ -142,16 +142,23 @@ function generate_training_sequences(songs, sequence_length)
     end
 
     # create mapping
-    # token_mapping = map((enumerate∘collect)(token_set)) do pair
-    #     pair[2] => pair[1]
-    # end |> Dict
     token_set = collect(token_set)
     
     # create onehot encodings
-    xs = map(xs) do seq
-        [Float32.(onehot(token, token_set)) for token in seq]
+    # since every sequence in xs are aligned, we could directly construct
+    # a tensor and apply gpu without realigning the dataset
+
+    # xs = map(xs) do seq
+    #     [Float32.(onehot(token, token_set)) for token in seq]
+    # end
+    # ys = [onehot(y, token_set) for y in ys]
+
+    xs = hcat(xs...)
+    xs = map(1:size(xs, 1)) do r
+        # get rows of matrix, corresponding to the `r`th step of rnn
+        Float32.(onehotbatch(xs[r, :], token_set))
     end
-    ys = [onehot(y, token_set) for y in ys]
+    ys = onehotbatch(ys, token_set)
 
     # return dataset, token_set
     (xs, ys), token_set
