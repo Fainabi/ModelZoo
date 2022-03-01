@@ -1,3 +1,5 @@
+import PyCall
+
 function set_musescore_path(musescore)
     # cant simply write it in julia
     # which will cause a deep copy and not change the environment

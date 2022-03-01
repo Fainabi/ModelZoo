@@ -4,6 +4,7 @@
 
 using Flux
 
+# one may want to use embedding rather one-hot representation as inputs
 mutable struct KrnModel
     rnn
     mlp

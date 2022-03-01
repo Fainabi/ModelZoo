@@ -38,7 +38,7 @@ end
     The structure of config imitates `MelodyRNNConfig` class in MelodyRNN.
 """
 struct MelodyRNNConfig
-    event_config
+    event_config::EventSequenceRNNConfig
     min_note
     max_note
     transpose_to_key
@@ -56,6 +56,6 @@ struct MelodyRNNConfig
 end
 
 default_configs = Dict(
-    "basic_rnn" => MelodyRNNConfig(EventSequenceRNNConfig(Dict(), 0:1//8:1))
+    "basic_rnn" => MelodyRNNConfig(EventSequenceRNNConfig(Dict(), 0:1//4:1))
 )
 

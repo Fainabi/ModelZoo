@@ -8,7 +8,7 @@ import PyCall
 function generate_melody(model, token_map, seed=[]; seq_len, num_steps)
 
     # fill splitting notes into a vector with length `seq_len`
-    start_symbols = fill(255, seq_len)
+    start_symbols = fill(SPLITTING_TOKEN, seq_len)
     result = copy(start_symbols)
 
     start_symbols = [onehot(note, token_map) for note in start_symbols]  # one hot representation
@@ -41,7 +41,7 @@ function generate_melody(model, token_map, seed=[]; seq_len, num_steps)
         push!(generated_notes, onehot(out_note, token_map))
 
         # check melody endings
-        if out_note == 255
+        if out_note == SPLITTING_TOKEN
             break
         end
     end
@@ -49,10 +49,6 @@ function generate_melody(model, token_map, seed=[]; seq_len, num_steps)
     result
 end
 
-
-REST_TOKEN = 129
-CONTINUOUS_TOKEN = 128
-SPLITTING_TOKEN = 255
 
 function seq_to_midi(notes, step_duration; filename="out.midi")
     # replace splitting token to rest token

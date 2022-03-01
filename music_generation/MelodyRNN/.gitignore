@@ -1,5 +1,6 @@
 # the magenta source files
 magenta/
+note-seq/
 
 # generated midi files
 *.midi
@@ -9,3 +10,6 @@ dataset/
 
 # saved model
 *.jld2
+
+# saved scores
+*.png

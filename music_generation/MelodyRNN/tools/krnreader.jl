@@ -76,7 +76,7 @@ function encode_song(song; time_step=1//4)
         symbol = if PyCall.py"isinstance"(event, music21.note.Note)
             event.pitch.midi
         elseif PyCall.py"isinstance"(event, music21.note.Rest)
-            129  # for rest
+            REST_TOKEN  # for rest
         end
 
         steps = (event.duration.quarterLength / time_step) |> Int∘floor
@@ -84,7 +84,7 @@ function encode_song(song; time_step=1//4)
             encoded_symbol = if step == 1
                 symbol
             else
-                128
+                CONTINUOUS_TOKEN
             end
 
             push!(encoded_song, encoded_symbol)
@@ -127,9 +127,9 @@ function generate_training_sequences(songs, sequence_length)
 
     for song in songs
         padded_song = vcat(
-            fill(255, sequence_length),
+            fill(SPLITTING_TOKEN, sequence_length),
             song,
-            fill(255, sequence_length)
+            fill(SPLITTING_TOKEN, sequence_length)
         )
 
         for idx in 1:length(padded_song)-sequence_length

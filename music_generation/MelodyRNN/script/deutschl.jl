@@ -1,3 +1,4 @@
+include("../tools/tokens.jl")
 include("../tools/dataset.jl")
 include("../tools/krnreader.jl")
 include("../models/lstm.jl")
@@ -31,6 +32,7 @@ function train_model(dataset_paths)
 
     dataset, token_map = generate_training_sequences(songs, args.seq_length)
     xs, ys = dataset
+    seq_len = length(xs)   # length needed for rnn model 
     xs = args.device.(xs)  # arrays of matrix
     ys = args.device(ys)   # a single matrix
 
@@ -98,7 +100,7 @@ function train_model(dataset_paths)
 
     # save the model, parameters need loading on cpu
     to_device(model, cpu)
-    @save "deutschl_model.jld2" model token_map
+    @save "deutschl_model.jld2" model token_map seq_len
 end
 
 train_model(DEUTSUCHL_DATASETS)
