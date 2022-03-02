@@ -14,11 +14,11 @@ Base.@kwdef struct KrnModelArgs
     lr::Float32     = 0.001
     hidden_dim::Int = 256
     epochs::Int     = 5
-    seq_length::Int = 5
+    seq_length::Int = 8
     batch_size::Int = 32
     device          = gpu
 
-    num_songs::Int  = 10
+    num_songs::Int  = 20
     λ::Number       = 10f0
 end
 

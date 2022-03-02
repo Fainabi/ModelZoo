@@ -1,7 +1,9 @@
 # the source file of lookback dataset preprocess in magenta is 
 # `note_seq.encoder_decoder.LookbackEventSequenceEncoderDecoder`
 
-using Flux: onehot
+using Flux: onehot, onehotbatch
+using StatsBase: sample, Weights
+using MIDI
 
 DEFAULT_LOOKBACK_TOKEN = CONTINUOUS_TOKEN  # means no event
 
@@ -156,3 +158,104 @@ function generate_lookback_dataset(songs, seq_len, upq)
 
     (xs, ys_note, ys_lookback), tokenset
 end
+
+
+function generate_lookback_melody(
+    m, tokenset, seed=[]; 
+    seq_len, num_steps, upq=4, 
+    lookback_weights=[200, 100],
+)
+    result = fill(SPLITTING_TOKEN, seq_len)
+
+    # notes start with splitting tokens and given seed
+    for note in seed
+        push!(result, note)
+    end
+
+    # encode them into vector representations
+    generated_notes = map(1:length(result)) do pos
+        lookback_input_encode(result, tokenset, pos, upq)
+    end
+
+    # start generating
+    for _ in 1:num_steps
+        input = generated_notes[end-seq_len+1:end]
+
+        y_note, y_lookback = m(input)
+
+        # we could add more weight to the notes looked back
+        lookback_counter = 0
+
+        for (flag, w) in zip(y_lookback, lookback_weights)
+            lookback_counter += 1
+            if sigmoid(flag) < 0.5
+                continue
+            end
+
+            # add weight to the prediction vector
+            y_note .+= w .* generated_notes[end][
+                lookback_counter*length(tokenset)+1 : (1+lookback_counter)*length(tokenset)]
+
+        end
+
+        probs = softmax(y_note)
+
+        note = sample(tokenset, Weights(probs))
+
+        push!(result, note)
+
+        push!(generated_notes, lookback_input_encode(result, tokenset, length(result), upq))
+
+        if note == SPLITTING_TOKEN
+            break
+        end
+    end
+
+    result
+end
+
+"""
+    Generate midi file by given notes.
+
+```
+- notes: vector of music event
+- upq: unit per quarter
+- filename: the generated midi file name
+- tpu: tick per unit
+```
+"""
+function write_lookback_melody(notes, upq; filename="lookback_out.mid", tpu=120)
+    notes = replace(notes, SPLITTING_TOKEN => REST_TOKEN)
+    push!(notes, SPLITTING_TOKEN)
+    midi_notes = MIDI.Notes(Note[], upq*tpu)
+
+    last_note = SPLITTING_TOKEN
+    step_counter = 1
+    pos = 0
+
+    for note in notes
+        if note == CONTINUOUS_TOKEN
+            step_counter += 1
+            continue
+        end
+
+        # a different token 
+        dur = step_counter*tpu
+        
+        if note != REST_TOKEN
+            push!(midi_notes, MIDI.Note(note, pos; duration=dur))
+        end
+
+        last_note = note
+        step_counter = 1
+
+        pos += dur
+    end
+
+    track = MIDI.MIDITrack()
+    MIDI.addnotes!(track, midi_notes)
+    file = MIDIFile()
+    push!(file.tracks, track)
+    writeMIDIFile(filename, file)
+end
+

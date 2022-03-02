@@ -4,6 +4,7 @@ note-seq/
 
 # generated midi files
 *.midi
+*.mid
 
 # dataset
 dataset/
