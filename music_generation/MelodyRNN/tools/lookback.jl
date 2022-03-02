@@ -46,7 +46,7 @@ function lookback_input_encode(symbols, tokenset, position, upq; lookback_distan
 
         # realign the offset
         if measure_pos == 0
-            measure_pos = 4pq
+            measure_pos = 4upq
         end
 
         # make relative pos to be united by 16th note
@@ -84,9 +84,7 @@ end
     Encode the label for token of given position. It contains the one-hot representation, and
 lookback flags.
 """
-function lookback_label_encode(symbols, tokenset, position, upq; lookback_distance=[4upq, 8upq])
-    rep = onehot(symbols[position], tokenset)
-
+function lookback_label_encode(symbols, position, upq; lookback_distance=[4upq, 8upq])
     # get lookback flags
     flags = map(lookback_distance) do lookback_dist
         lookback_pos = position - lookback_dist
@@ -99,5 +97,62 @@ function lookback_label_encode(symbols, tokenset, position, upq; lookback_distan
     end
 
     # seperate these two parts for easily computing loss
-    (rep, flags)
+    (symbols[position], flags)
+end
+
+
+function generate_lookback_dataset(songs, seq_len, upq)
+
+    xs = []
+    ys_note = []
+    ys_lookback = []
+
+    # constrcut tokenset
+    tokenset = Set()
+    push!(tokenset, SPLITTING_TOKEN)
+    for song in songs
+        union!(tokenset, song)
+    end
+    tokenset = collect(tokenset)
+
+    # extract xs and ys
+    for song in songs
+        padded_song = vcat(
+            fill(SPLITTING_TOKEN, seq_len),
+            song,
+            fill(SPLITTING_TOKEN, seq_len)
+        )
+
+        # encode input vectors
+        inputs = map(1:length(padded_song)-1) do pos
+            lookback_input_encode(padded_song, tokenset, pos, upq)
+        end
+
+        # pack input and label
+        for pos in 1:length(inputs)-seq_len+1
+            # [a,b,c,d,...], use [a,b,c] to predict `d`
+            push!(xs, inputs[pos:pos+seq_len-1])
+
+            note, lookback = lookback_label_encode(padded_song, pos+seq_len, upq)
+            push!(ys_note, note)
+            push!(ys_lookback, lookback)
+        end
+    end
+
+    # create matrix representation
+    xs = map(1:seq_len) do idx
+        # combine the `i`th note vectors into a matrix
+        seq_at_idx = map(xs) do seq
+            seq[idx]
+        end
+
+        hcat(seq_at_idx...)
+    end
+
+    # in the test time, using hcat for onehot vectors had met some problems
+    # thus here use Flux built in `onehotbatch` function
+    ys_note = onehotbatch(ys_note, tokenset)
+    ys_lookback = hcat(ys_lookback...)
+
+    (xs, ys_note, ys_lookback), tokenset
 end

@@ -22,11 +22,11 @@ mutable struct LookbackMelodyRNN
     mlp_lookback
 end
 
-Flux.params(m::LookbackMelodyRNN) = (m.rnn, m.mlp_note, m.mlp_lookback)
+Flux.params(m::LookbackMelodyRNN) = Flux.params(m.rnn, m.mlp_note, m.mlp_lookback)
 
 function construct_lookback_rnn(in_dim, hidden_dim, note_dim)
     LookbackMelodyRNN(
-        LSTM(in_dim + 7, hidden_dim),       # rnn
+        LSTM(in_dim, hidden_dim),       # rnn
         Chain(
             Dropout(0.2),
             Dense(hidden_dim, note_dim),    # mlp note
@@ -51,5 +51,6 @@ function (m::LookbackMelodyRNN)(seq)
     Flux.reset!(m.rnn)
 
     hiddens = [m.rnn(x) for x in seq]
-    (m.mlp_note(hiddens), m.mlp_lookback(hiddens))    
+    out = hiddens[end]
+    (m.mlp_note(out), m.mlp_lookback(out))
 end

@@ -48,6 +48,11 @@ function filter_melody(track::MIDI.MIDITrack; allow_overlap=false)
 
             # meet overlapping
             if last_note.position + last_note.duration > note.position
+                # perfectly overlap
+                if last_note.position == note.position && last_note.duration == note.duration
+                    continue
+                end
+
                 if !allow_overlap
                     return Note[]
                 end
@@ -73,7 +78,8 @@ function notes_to_symbols(notes, grid, quarter_duration)
     unit = grid[2] * quarter_duration  # the second smaller one is unit 
 
     # track latest note and tick
-    tick = 0
+    # start near note[1].position to reduce blank rest notes
+    tick = notes[1].position - (notes[1].position % (4quarter_duration))
 
     for note in notes
         # if has gap, fill it with rest symbols

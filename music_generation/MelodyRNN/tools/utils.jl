@@ -10,6 +10,7 @@ include("krnreader.jl")
 include("krngenerator.jl")
 
 # to read midi files
+include("readfile.jl")
 include("midi2vec.jl")
 include("lookback.jl")
 
