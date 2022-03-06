@@ -1,5 +1,4 @@
 [deps]
-Cascadia = "54eefc05-d75b-58de-a785-1a3403f0919f"
-Gumbo = "708ec375-b3d6-5a57-a7ce-8257bf98657a"
+EzXML = "8f5d6c58-4d21-5cfd-889c-e3ad7ee6a615"
 HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
 JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"

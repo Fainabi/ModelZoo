@@ -8,7 +8,7 @@ function retrive_artists(category)
     url = string(domain, "/theorytab/artists/", category)
 
     # read html 
-    HTTP.get(url)    
+    r = HTTP.get(url)    
 
     # the artists are in the form of /theorytab/artists/$(category[1])/$(artist name)
     html_str = String(r.body)
@@ -43,15 +43,15 @@ function retrive_api_url(artist, song)
     pattern = r"idOfSong=.+(?=\")"
 
     # get api parameters
-    api_idx = findfirst(pattern, html_str)
-    apis = html_str[api_idx]
+    # It may contains several different snippets
+    api_urls = map(findall(pattern, html_str)) do idx
+        api_params = html_str[idx]
 
-    # extract id
-    terms = split(apis, r"[&|=]")
-    api_idx = findfirst(isequal("idOfSong"), terms)
-    api = terms[api_idx+1]
-
-    api_url = string("https://api.hooktheory.com/v1/songs/public/", api)
+        # extract id
+        terms = split(api_params, r"[&|=]")
+        api_idx = findfirst(isequal("idOfSong"), terms)
+        string("https://api.hooktheory.com/v1/songs/public/", terms[api_idx+1])
+    end    
 end
 
 """
@@ -68,10 +68,9 @@ function retrive_dataset(sleeptime=0.5; savepath="theorytab")
 
         # get artists name
         artists = retrive_artists(category)
-        for artist in artists, song in retrive_songs(artist)
+        for artist in artists, song in retrive_songs(artist), api_url in retrive_api_url(artist, song)
             # this url imitates request in the website page
             # api_url = string(api_url, "?fields=ID,xmlData,song,jsonData")
-            api_url = retrive_api_url(artist, song)
 
             # GET data from api
             r = HTTP.get(api_url)
