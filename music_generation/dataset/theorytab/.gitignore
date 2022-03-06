@@ -6,3 +6,6 @@ theorytab/
 # https://github.com/wayne391/symbolic-music-datasets
 XML/
 XML.zip
+
+# built dataset
+theorytab.jld2

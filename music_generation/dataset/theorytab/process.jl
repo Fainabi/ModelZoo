@@ -56,6 +56,12 @@ function parse_chord(chord, song_keys)
     #
     # `borrowed`, `applied`, and `root` determine the absolute root pitch of the chord
 
+    # is a rest
+    if chord.root == 0
+        return CHORD_REST_TOKEN
+    end
+
+
     key_idx = findlast(song_keys) do sk
         sk.beat <= chord.beat
     end
@@ -69,7 +75,6 @@ function parse_chord(chord, song_keys)
     # chord.root is an integer, and means would not be out of scale range
     applied_tonic = (tonic + scale[chord.root]) % 12    # chord.root is one-based
     scale_name = if !isnothing(chord.borrowed) && !isempty(chord.borrowed)
-        scale = MODES[chord.borrowed]
         chord.borrowed
     else
         if iszero(chord.applied)
@@ -107,6 +112,10 @@ function read_json_data(jsonData)
     # read chords and notes unit duration
     chords = song_data.chords
     notes = song_data.notes
+
+    # some songs do not contain these informatino
+    isempty(notes) && return
+    isempty(chords) && return
 
     minimal_note_duration = minimum(notes) do note
         note.duration
@@ -172,7 +181,7 @@ function read_json_data(jsonData)
         end
     end
 
-    note_token_vec, chord_token_vec
+    (note_token_vec, minimal_duration, chord_token_vec)
 end
 
 """
@@ -181,10 +190,19 @@ end
 Now we donnot know what the `borrowed` integers mean, so just extract the notes information.
 """
 function read_xml_data(xmlData)
-    xmldata = EzXML.parsexml(xmlData)
+    xmldata = try
+        EzXML.parsexml(xmlData)
+    catch
+        return
+    end
     # the following names follow the xml labels
     theorytab = root(xmldata)
     data = findfirst("//data", theorytab)
+
+    # some different version of xml, not implemented
+    if isnothing(data)
+        return
+    end
 
     notes = []
     chords = []
@@ -219,6 +237,10 @@ function read_xml_data(xmlData)
     song_mode_num = parse(Int, nodecontent(findfirst("//meta/mode", theorytab)))
     song_mode = MODES[song_mode_num]
     
+    if isnothing(notes) || isempty(notes)
+        return
+    end
+
     minimal_dur = minimum(notes) do note
         parse(Float32, note[1])
     end
@@ -227,7 +249,12 @@ function read_xml_data(xmlData)
         if degree == "rest"
             push!(encoded_notes, REST_TOKEN)
         else
+            ss = findall('s', degree) |> length
+            fs = findall('f', degree) |> length
+            degree = replace(degree, "s" => "", "f" => "")
+
             note_pitch = CENTER_C + parse(Int, octave)*8 + song_key + song_mode[parse(Int, degree)]
+            note_pitch += ss - fs
 
             push!(encoded_notes, note_pitch)
         end
@@ -237,18 +264,20 @@ function read_xml_data(xmlData)
         end
     end
 
-    encoded_notes
+    (encoded_notes, minimal_dur, nothing)
 end
 
 function read_song_data(filepath)
+    # println("read file at ", filepath)
+
     # this json data is from GET request
     json_string = Base.read(filepath, String)
     json_data = JSON3.read(json_string)
 
     # check song data format
-    if !isnothing(json_data.jsonData)
+    if !isnothing(json_data.jsonData) && !isempty(json_data.jsonData)
         read_json_data(json_data.jsonData)
-    elseif !isnothing(json_data.xmlData)
+    elseif !isnothing(json_data.xmlData) && !isempty(json_data.xmlData)
         read_xml_data(json_data.xmlData)
     else
         @warn "A file at $filepath is without either xmlData or jsonData"
