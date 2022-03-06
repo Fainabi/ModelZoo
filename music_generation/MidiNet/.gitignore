@@ -1,0 +1,7 @@
+# Theorytab dataset
+#   using crawler at ../dataset/theorytab/crawler.jl
+theorytab
+theorytab.jld2
+
+
+
