@@ -48,7 +48,7 @@ function parse_pitch(note, song_keys)
 end
 
 
-function parse_chord(chord, song_keys)
+function parse_chord(chord, song_keys; max_chord_type=7)
     # chord type is in [5(for triad), 7, 9, 11, 13], the traditional 3th repeated chords
     # inversions are [0(None), 1st, 2nd, 3rd], here we don't care about it
     # beat, root, duration are numbers
@@ -85,7 +85,7 @@ function parse_chord(chord, song_keys)
     end
     scale = MODES[scale_name]
 
-    chord_type = (chord.type > 9) ? 9 : chord.type 
+    chord_type = (chord.type > max_chord_type) ? max_chord_type : chord.type 
     applied_root = (applied_tonic + scale[chord_applied]) % 12
     chord_order = (iszero(chord.applied)) ? chord.root : chord_applied
     
@@ -106,6 +106,10 @@ function read_json_data(jsonData)
     #    "tonic": center note
     #  }
     song_keys = song_data.keys
+    if length(song_keys) > 1
+        # we want our snippets to be monotonic
+        return
+    end
 
     song_meters = song_data.meters
 
@@ -128,6 +132,7 @@ function read_json_data(jsonData)
     
     # if the duration cannot divide one beat, we discard such song
     !iszero(1 % minimal_duration) && return
+    (minimal_duration < 0.25) && return
 
     # create symbol vector
     note_token_vec = []
@@ -151,6 +156,12 @@ function read_json_data(jsonData)
 
         # record that note
         push!(note_token_vec, pitch)
+
+        # neglect tuplets and swing rhythm 
+        if note.duration % minimal_duration != 0
+            return
+        end
+
         note_dur = note.duration ÷ minimal_duration
         for _ in 2:note_dur
             push!(note_token_vec, CONTINUOUS_TOKEN)
@@ -169,7 +180,7 @@ function read_json_data(jsonData)
 
             push!(chord_token_vec, CHORD_REST_TOKEN)
             for _ in 2:rest_duration
-                push!(chord_token_vec, CHORD_CONTINUOUS_TOKE)
+                push!(chord_token_vec, CHORD_CONTINUOUS_TOKEN)
             end
         end
 
@@ -177,11 +188,11 @@ function read_json_data(jsonData)
         push!(chord_token_vec, chord_code)
         chord_dur = chord.duration ÷ minimal_duration
         for _ in 2:chord_dur
-            push!(chord_token_vec, CHORD_CONTINUOUS_TOKE)
+            push!(chord_token_vec, CHORD_CONTINUOUS_TOKEN)
         end
     end
 
-    (note_token_vec, minimal_duration, chord_token_vec)
+    (note_token_vec, minimal_duration, song_keys[1].tonic, chord_token_vec)
 end
 
 """
@@ -264,10 +275,10 @@ function read_xml_data(xmlData)
         end
     end
 
-    (encoded_notes, minimal_dur, nothing)
+    (encoded_notes, minimal_dur, song_key, nothing)
 end
 
-function read_song_data(filepath)
+function read_song_data(filepath; chords=false)
     # println("read file at ", filepath)
 
     # this json data is from GET request
@@ -277,9 +288,8 @@ function read_song_data(filepath)
     # check song data format
     if !isnothing(json_data.jsonData) && !isempty(json_data.jsonData)
         read_json_data(json_data.jsonData)
-    elseif !isnothing(json_data.xmlData) && !isempty(json_data.xmlData)
+    elseif !isnothing(json_data.xmlData) && !isempty(json_data.xmlData) && !chords
+        # since the chord extraction has som problem, when we need dataset with chords, skip it
         read_xml_data(json_data.xmlData)
-    else
-        @warn "A file at $filepath is without either xmlData or jsonData"
     end
 end

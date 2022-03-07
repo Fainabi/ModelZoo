@@ -8,7 +8,8 @@ function build_dataset_file(song_num=1000; dataset_path = "theorytab/", min_dur=
 
     song_cnt = 0
     song_series = []
-    durs = []
+    song_keys = []
+    song_chords = []
     p = Progress(song_num, 1)
 
     for (root, _, files) in walkdir(dataset_path), file in files
@@ -18,7 +19,7 @@ function build_dataset_file(song_num=1000; dataset_path = "theorytab/", min_dur=
 
         # for some unimplemented version of forms and error data, ignore them
         song_data = try
-            read_song_data(joinpath(root, file))
+            read_song_data(joinpath(root, file); chords=true)
         catch
             continue
         end
@@ -26,19 +27,20 @@ function build_dataset_file(song_num=1000; dataset_path = "theorytab/", min_dur=
         if isnothing(song_data)
             continue
         end
-        song_tokens, dur, _ = song_data
+        song_tokens, dur, song_key, song_chord = song_data
 
         # to make the dataset aligend, thus filter out songs whose duration is too small
-        if dur < min_dur
+        if dur != min_dur
             continue
         end
 
         push!(song_series, song_tokens)
-        push!(durs, dur)
+        push!(song_keys, song_key)
+        push!(song_chords, song_chord)
 
         song_cnt += 1
         next!(p)
     end
 
-    JLD2.@save "theorytab.jld2" songs=song_series durations=durs
+    JLD2.@save "theorytab.jld2" melodies=song_series chords=song_chords keys=song_keys
 end
