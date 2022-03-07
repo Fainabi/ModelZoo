@@ -23,3 +23,7 @@ $\mathcal{N}$ -> Deep Convolutional Generator -> Matrix of symbols in a bar -> D
 ### Conditional GAN
 
 MidiNet adds more auxiliary structures to take attention on the previous bars of music notes, which makes it learn the structure of music. That is the novel conditional mechanism.
+
+## Implementation
+
+The implementation referred to the [pytorch implementation](https://github.com/annahung31/MidiNet-by-pytorch).

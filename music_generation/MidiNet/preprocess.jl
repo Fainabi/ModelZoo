@@ -1,4 +1,5 @@
 using JLD2
+using Flux: onehot, onehotbatch
 
 include("event.jl")
 include("modes.jl")
@@ -105,6 +106,13 @@ function augment_dataset(dataset)
     new_dataset
 end
 
+function sequences_to_matrix(seq)
+    seq = vcat(seq...)
+    seq = onehotbatch(seq, DEFAULT_PITCH_RANGE)
+    seq = reshape(seq, length(DEFAULT_PITCH_RANGE), 16, :)
+    seq = Float32.(seq)
+end
+
 function preprocess_dataset(filename="theorytab.jld2")
     # load the dataset
     JLD2.@load filename melodies chords keys
@@ -161,6 +169,15 @@ function preprocess_dataset(filename="theorytab.jld2")
             push!(real_dataset_inputs, bars[idx+1])
         end
     end
+
+    # one hot encoding
+
+    real_dataset_inputs = sequences_to_matrix(real_dataset_inputs)
+    real_dataset_conditions_2d = sequences_to_matrix(real_dataset_conditions_2d)
+    real_dataset_conditions_1d = map(real_dataset_conditions_1d) do pair
+        vcat(onehot(pair[1], 0:11), pair[2])
+    end
+    real_dataset_conditions_1d = Float32.(hcat(real_dataset_conditions_1d...))
 
     (real_dataset_inputs, real_dataset_conditions_2d, real_dataset_conditions_1d)
 end
