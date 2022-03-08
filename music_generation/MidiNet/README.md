@@ -27,3 +27,6 @@ MidiNet adds more auxiliary structures to take attention on the previous bars of
 ## Implementation
 
 The implementation referred to the [pytorch implementation](https://github.com/annahung31/MidiNet-by-pytorch).
+
+This deep NN model has complicated structure, since the condition information are injected into the data several times, which is similar to that of ResNet. And it may cause enormous compile time, see the [issue](https://github.com/FluxML/Zygote.jl/issues/1126). In such case, one can start the julia with `-O1` optimization, and reduce the compile time. If in the notebook or wanna adjust in the runtime, use `Base.Experimental.@optleval` to set it, see the [plot codes](https://github.com/JuliaPlots/Plots.jl/pull/2544/files) used.
+

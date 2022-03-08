@@ -3,5 +3,13 @@
 theorytab
 theorytab.jld2
 
+# preprocessed dataset
+dataset.jld2
 
+# trained model
+model.jld2
+models/
+
+# generated midis
+midis/
 

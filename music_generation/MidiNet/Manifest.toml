@@ -293,6 +293,12 @@ version = "0.3.6"
 [[deps.Logging]]
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 
+[[deps.MIDI]]
+deps = ["FileIO"]
+git-tree-sha1 = "aff9a60732f3a6aaa722964c7c1c01c691566c3a"
+uuid = "f57c4921-e30c-5f49-b073-3f2f2ada663e"
+version = "2.2.0"
+
 [[deps.MacroTools]]
 deps = ["Markdown", "Random"]
 git-tree-sha1 = "3d3e902b31198a27340d0bf00d6ac452866021cf"
