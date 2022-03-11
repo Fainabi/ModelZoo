@@ -1,21 +1,19 @@
 using Flux
 using Flux.Losses: logitbinarycrossentropy
+using Flux.Zygote: pullback
 using MLDatasets
 using Statistics
-using Zygote: pullback
-using Parameters: @with_kw
 using Random: randn
 using Images
-using CUDA
 using ProgressBars
 
 
-CUDA.allowscalar(false)
-@with_kw struct Args
-    lr_desc::Float32 = 1e-3
+Flux.CUDA.allowscalar(false)
+Base.@kwdef struct Args
+    lr_disc::Float32 = 1e-3
     lr_gen::Float32 = 1e-3
     device = gpu
-    batchsize::Int = 256
+    batchsize::Int = 128
 end
 
 # This model imitates DCGAN in Flux's Model-Zoo
@@ -62,69 +60,73 @@ function draw(m::DCGAN, noise)
     image_arr
 end
 
-function fake!(m::DCGAN, xs, opt_desc, opt_gen; args::Args)
+function fake!(m::DCGAN, xs, opt_disc, opt_gen; args::Args)
     ps_gen = params(m.generator)
-    ps_desc = params(m.discriminator)
+    ps_disc = params(m.discriminator)
 
     loss_gen, back_gen = pullback(ps_gen) do 
         logitbinarycrossentropy(m.discriminator(m.generator(xs)), 1)
     end
-    loss_desc, back_desc = pullback(ps_desc) do 
+    loss_disc, back_disc = pullback(ps_disc) do 
         logitbinarycrossentropy(m.discriminator(m.generator(xs)), 0)
     end
 
     Flux.update!(opt_gen, ps_gen, back_gen(one(loss_gen)))
-    Flux.update!(opt_desc, ps_desc, back_desc(one(loss_desc)))
+    Flux.update!(opt_disc, ps_disc, back_disc(one(loss_disc)))
     
 
-    loss_desc, loss_gen
+    loss_disc, loss_gen
 end
-function real!(m::DCGAN, xs, opt_desc; args::Args)
+function real!(m::DCGAN, xs, opt_disc; args::Args)
     ps = params(m.discriminator)
 
     loss, back = pullback(ps) do 
         logitbinarycrossentropy(m.discriminator(xs), 1)
     end
     gs = back(one(loss))
-    Flux.update!(opt_desc, ps, gs)
+    Flux.update!(opt_disc, ps, gs)
 
     loss
 end
 
 function train(; kws...)
+    # args and device to use
     args = Args(; kws...)
-    
     device = args.device
 
+    # load MNIST dataset
     images, _ = MLDatasets.MNIST.traindata(Float32)  # images, _labels(discarded)
     images = device(images)
-    images = 2*images .- 1
+    images = 2*images .- 1                          # to [-1, 1]
     images = images |> x -> reshape(x, (28, 28, 1, :))
     @info "Size of image set" size(images)
+
+    # construct dataloader
     dataloader = Flux.DataLoader(images, batchsize=args.batchsize, shuffle=true)
     latent_dim = 100
     m = DCGAN(latent_dim, args)
-    opt_desc = ADAM(args.lr_desc)
+    opt_disc = ADAM(args.lr_disc)
     opt_gen = ADAM(args.lr_gen)
 
-    fixed_noises = device(randn(latent_dim, 5))
+    # use these gaussian noises to generate new images
+    fixed_noises = device(randn(Float32, latent_dim, 5))
 
     @info "Start Training..."
     for epoch in 1:5
-        loss_desc = 0
+        loss_disc = 0
         loss_gan = 0
         for xs in tqdm(dataloader)
-            loss_desc += real!(m, xs, opt_desc; args)
-            fake_desc, fake_gan = fake!(m, device(randn(latent_dim, args.batchsize)), opt_desc, opt_gen; args)
-            loss_desc += fake_desc
+            loss_disc += real!(m, xs, opt_disc; args)
+            fake_disc, fake_gan = fake!(m, device(randn(Float32, latent_dim, args.batchsize)), opt_disc, opt_gen; args)
+            loss_disc += fake_disc
             loss_gan += fake_gan
         end
-        loss_desc /= length(dataloader)
+        loss_disc /= length(dataloader)
         loss_gan /= length(dataloader)
         acc_real = mean(hcat((m.discriminator).(dataloader)...) .> 0.0f0)
-        acc_fake = mean((m.discriminator∘m.generator)(device(randn(latent_dim, args.batchsize))) .< 0f0)
+        acc_fake = mean((m.discriminator∘m.generator)(device(randn(Float32, latent_dim, args.batchsize))) .< 0f0)
 
-        @info "Epoch $epoch:" loss_desc loss_gan acc_real acc_fake
+        @info "Epoch $epoch:" loss_disc loss_gan acc_real acc_fake
         save("pics/$epoch.png", draw(m, fixed_noises))
     end
 
